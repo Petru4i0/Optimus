@@ -5,6 +5,7 @@ import AppIcon from "./components/AppIcon";
 import AppPickerDropdown, { type AppPickerOption } from "./components/AppPickerDropdown";
 import Layout from "./components/Layout";
 import ModeSelector from "./components/ModeSelector";
+import PrioritySelect from "./components/PrioritySelect";
 import ProcessGroupCard from "./components/ProcessGroupCard";
 import Toasts from "./components/Toasts";
 import {
@@ -955,17 +956,12 @@ export default function App() {
 
                     <div className="w-full lg:w-[220px]">
                       <label className="mb-1 block text-xs text-zinc-400">Priority</label>
-                      <select
-                        className="select h-[42px] w-full"
+                      <PrioritySelect
+                        className="h-[42px] w-full"
+                        options={PRIORITY_OPTIONS}
                         value={builderTargetPriority}
-                        onChange={(event) => setBuilderTargetPriority(event.target.value as PriorityClass)}
-                      >
-                        {PRIORITY_OPTIONS.map((priority) => (
-                          <option key={priority.value} value={priority.value}>
-                            {priority.label}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={setBuilderTargetPriority}
+                      />
                     </div>
 
                     <button className="btn-primary h-[42px] w-full px-4 lg:justify-self-end" onClick={onAddBuilderTarget}>

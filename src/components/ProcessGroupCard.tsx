@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { memo, useState } from "react";
 import { PriorityClass, PriorityOption, ProcessGroupDto } from "../types/process";
 import AppIcon from "./AppIcon";
+import PrioritySelect from "./PrioritySelect";
 import ProcessRow from "./ProcessRow";
 
 type ProcessGroupCardProps = {
@@ -73,17 +74,12 @@ function ProcessGroupCard({
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <select
-            className="select"
+          <PrioritySelect
+            className="w-[190px]"
+            options={priorities}
             value={groupPriorityValue}
-            onChange={(event) => onGroupPriorityChange(group.appName, event.target.value as PriorityClass)}
-          >
-            {priorities.map((priority) => (
-              <option key={priority.value} value={priority.value}>
-                {priority.label}
-              </option>
-            ))}
-          </select>
+            onChange={(nextValue) => onGroupPriorityChange(group.appName, nextValue)}
+          />
           <button className="btn-primary" disabled={applyingGroup} onClick={() => void onApplyGroup(group)}>
             {applyingGroup ? "Applying..." : "Apply to All"}
           </button>

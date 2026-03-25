@@ -72,6 +72,27 @@ body {
   @apply rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-400 focus:ring-2 focus:ring-zinc-500/40;
 }
 
+.priority-select {
+  @apply relative;
+}
+
+.priority-select-trigger {
+  @apply flex h-[42px] w-full items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none transition hover:border-zinc-500 focus-visible:border-zinc-400 focus-visible:ring-2 focus-visible:ring-zinc-500/40;
+}
+
+.priority-select-menu {
+  @apply overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900/95 p-1 backdrop-blur-xl;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.38);
+}
+
+.priority-select-item {
+  @apply flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition hover:bg-zinc-800/90;
+}
+
+.priority-select-item-selected {
+  @apply bg-zinc-800 text-zinc-100;
+}
+
 .app-picker {
   @apply relative;
 }

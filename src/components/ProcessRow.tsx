@@ -2,6 +2,7 @@ import { PriorityClass, PriorityOption, ProcessDto } from "../types/process";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { memo } from "react";
+import PrioritySelect from "./PrioritySelect";
 import StatusPill from "./StatusPill";
 
 type ProcessRowProps = {
@@ -64,17 +65,12 @@ function ProcessRow({
         </StatusPill>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <select
-            className="select"
+          <PrioritySelect
+            className="w-[180px]"
+            options={priorities}
             value={selectedPriority}
-            onChange={(event) => onPriorityChange(process.pid, event.target.value as PriorityClass)}
-          >
-            {priorities.map((priority) => (
-              <option key={priority.value} value={priority.value}>
-                {priority.label}
-              </option>
-            ))}
-          </select>
+            onChange={(nextValue) => onPriorityChange(process.pid, nextValue)}
+          />
 
           <button
             className="btn-primary"
