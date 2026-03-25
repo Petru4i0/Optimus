@@ -1,0 +1,162 @@
+﻿@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  font-family: "Segoe UI", "Inter", system-ui, sans-serif;
+}
+
+body {
+  @apply bg-zinc-950 text-zinc-200;
+  overflow: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  transition: all 0.3s;
+}
+
+::-webkit-scrollbar:hover {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.glass-card {
+  @apply border border-zinc-700/70 bg-zinc-900/75 backdrop-blur-xl;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+}
+
+.glass-titlebar {
+  @apply bg-zinc-950/90 backdrop-blur-2xl;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.3);
+}
+
+.glow-hover {
+  @apply transition-all duration-300;
+}
+
+.glow-hover:hover {
+  @apply border-zinc-400/70;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.25);
+}
+
+.pill {
+  @apply inline-flex items-center rounded-lg border border-zinc-200/15 bg-zinc-950/45 px-2.5 py-1 text-xs text-zinc-200;
+}
+
+.select {
+  @apply rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-400 focus:ring-2 focus:ring-zinc-500/40;
+}
+
+.app-picker {
+  @apply relative;
+}
+
+.app-picker-trigger {
+  @apply flex h-[42px] w-full items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none transition hover:border-zinc-500 focus-visible:border-zinc-400 focus-visible:ring-2 focus-visible:ring-zinc-500/40;
+}
+
+.app-picker-trigger-content {
+  @apply flex min-w-0 items-center gap-2;
+}
+
+.app-picker-placeholder {
+  @apply text-zinc-400;
+}
+
+.app-picker-menu {
+  @apply overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900/95 p-1 backdrop-blur-xl;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.38);
+}
+
+.app-picker-item {
+  @apply flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-zinc-200 transition hover:bg-zinc-800/90;
+}
+
+.app-picker-item-selected {
+  @apply bg-zinc-800 text-zinc-100;
+}
+
+.app-picker-empty {
+  @apply px-2 py-3 text-sm text-zinc-400;
+}
+
+.btn-primary {
+  @apply rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm font-medium text-white transition hover:border-zinc-300 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.btn-warning {
+  @apply rounded-lg border border-zinc-400/35 bg-zinc-700/35 px-3 py-2 text-sm font-medium text-zinc-100 transition hover:border-zinc-200/60 hover:bg-zinc-600/40;
+}
+
+.btn-danger {
+  @apply rounded-lg border border-rose-300/35 bg-rose-500/15 px-3 py-2 text-sm font-medium text-rose-100 transition hover:border-rose-200/70 hover:bg-rose-500/30 disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.btn-ghost {
+  @apply rounded-lg border border-zinc-100/15 bg-zinc-900/35 text-zinc-200 transition hover:border-zinc-100/25 hover:bg-zinc-800/45;
+}
+
+.titlebar-root {
+  -webkit-app-region: drag;
+}
+
+.titlebar-controls {
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
+}
+
+.titlebar-control-btn {
+  @apply inline-flex h-8 w-8 items-center justify-center rounded-md border border-zinc-100/10 bg-zinc-900/30 text-zinc-200/90 transition;
+}
+
+.titlebar-control-btn:hover {
+  @apply border-zinc-100/20 bg-white/10 text-zinc-100;
+}
+
+.titlebar-control-btn:focus-visible {
+  @apply outline-none ring-2 ring-zinc-400/50;
+}
+
+.titlebar-control-close:hover {
+  @apply border-red-300/40 bg-red-500 text-white;
+}
+
+@keyframes popover-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.popover-fade-in {
+  animation: popover-fade-in 140ms ease-out;
+}
