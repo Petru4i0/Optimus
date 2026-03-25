@@ -1,5 +1,10 @@
 # ⚡ Optimus
 
+![Version](https://img.shields.io/badge/version-1.0.0-blue?style=for-the-badge)
+![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)
+![Rust](https://img.shields.io/badge/Built_with-Rust-black?style=for-the-badge&logo=rust)
+![Platform](https://img.shields.io/badge/platform-windows-0078d7?style=for-the-badge&logo=windows)
+
 > **Zero-overhead, context-aware process priority manager.** > Say goodbye to clunky 90s interfaces. Optimus delivers enterprise-grade process management with a modern, glass-morphism UI. Built on a lightning-fast Rust core and a React frontend.
 
 Optimus allows you to intelligently control Windows process priorities. Unlike legacy tools that blindly force priorities and consume CPU cycles, Optimus uses a Smart Context Engine to manage your system resources exactly when you need them—and sleeps when you don't.
