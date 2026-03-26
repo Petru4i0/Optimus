@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Optimus</h1>
-  <img src="https://img.shields.io/github/v/release/Petru4iO/optimus?style=for-the-badge" alt="Version"/>  
+  <img src="https://img.shields.io/github/v/release/Petru4i0/optimus?style=for-the-badge" alt="Version"/>  
   <img src="https://img.shields.io/badge/platform-windows-0078d7?style=for-the-badge&logo=windows" alt="Windows"/>  
   <img src="https://img.shields.io/badge/Rust-black?style=for-the-badge&logo=rust" alt="Rust"/>  
   <img src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React"/>  
@@ -83,5 +83,5 @@ Contributions, issues, and feature requests are welcome!
 5. Open a Pull Request.
 
 ## Credits
-- **Creator & Lead Developer**: (Petru4i0)
+- **Creator & Lead Developer**: (PetruchiO)
 - **License**: Distributed under the MIT License. See `LICENSE` for more information.
