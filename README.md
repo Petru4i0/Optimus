@@ -83,5 +83,5 @@ Contributions, issues, and feature requests are welcome!
 5. Open a Pull Request.
 
 ## Credits
-- **Creator & Lead Developer**: Egor (PetruchiO)
+- **Creator & Lead Developer**: (PetruchiO)
 - **License**: Distributed under the MIT License. See `LICENSE` for more information.
