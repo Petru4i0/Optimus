@@ -37,7 +37,7 @@ Optimus is built on a decoupled architecture (Tauri v2):
 
 ## Installation
 
-1. Download the latest `.exe` or `.msi` from [GitHub Releases](https://github.com/PetruchiO/optimus/releases).
+1. Download the latest `.exe` or `.msi` from [GitHub Releases](https://github.com/Petru4i0/optimus/releases).
 2. Run the installer.
 3. Launch **Optimus** (Optionally run as Administrator for system-level process control).
 
@@ -54,7 +54,7 @@ Optimus is built on a decoupled architecture (Tauri v2):
 
 1. Clone the repository:
    ```bash
-   git clone [https://github.com/PetruchiO/optimus.git](https://github.com/PetruchiO/optimus.git)
+   git clone [https://github.com/Petru4i0/optimus.git](https://github.com/Petru4i0/optimus.git)
    ```
 2. Navigate to the project directory:
    ```bash
@@ -83,5 +83,5 @@ Contributions, issues, and feature requests are welcome!
 5. Open a Pull Request.
 
 ## Credits
-- **Creator & Lead Developer**: (PetruchiO)
+- **Creator & Lead Developer**: (Petru4i0)
 - **License**: Distributed under the MIT License. See `LICENSE` for more information.
