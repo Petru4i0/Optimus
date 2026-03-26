@@ -16,6 +16,7 @@
 <p align="center">
   <img src="assets/home.png" width="45%" alt="Main UI">
   <img src="assets/setting.png" width="45%" alt="Settings View">
+  <img src="assets/engine.png" width="45%" alt="Settings View">
 </p> 
 
 ## Features
