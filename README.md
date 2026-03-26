@@ -47,8 +47,12 @@ Optimus is built on a decoupled architecture (Tauri v2):
 2. Select a priority (e.g., `High`).
 3. Choose the enforcement mode:
    - **Always**: Forces priority 24/7.
-   - **Smart**: Select a "Trigger App". The priority is only enforced while the trigger app is running.
-4. Minimize the app. It will retreat to the System Tray and manage your PC in the background.
+   - **Smart**: The priority is only enforced while a linked "Trigger App" is running.
+4. Navigate to the **Engine** tab and enable:
+   - **Turbo Timer**: Reduces input latency by optimizing system interrupts.
+   - **Memory Purge**: Automatically clears standby RAM when thresholds are met.
+5. In **Settings**, enable **Run as Administrator**. This is required to grant Optimus the necessary permissions to modify system-level process priorities.
+6. Minimize the app. It will retreat to the System Tray and manage your PC in the background.
 
 ## Compiling from Source
 
