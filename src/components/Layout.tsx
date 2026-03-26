@@ -5,8 +5,8 @@ import StatusPill from "./StatusPill";
 import TitleBar from "./TitleBar";
 
 type LayoutProps = {
-  activeTab: "home" | "settings";
-  onTabChange: (tab: "home" | "settings") => void;
+  activeTab: "home" | "settings" | "engine";
+  onTabChange: (tab: "home" | "settings" | "engine") => void;
   title?: string;
   groupsCount: number;
   totalProcesses: number;

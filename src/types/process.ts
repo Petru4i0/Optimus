@@ -57,7 +57,7 @@ export type WatchdogConfig = {
   stickyModes: Record<string, number>;
 };
 
-export type ToastKind = "success" | "error" | "info";
+export type ToastKind = "success" | "error" | "info" | "warning";
 
 export type ToastMessage = {
   id: number;
@@ -68,10 +68,48 @@ export type ToastMessage = {
 export type RuntimeSettings = {
   watchdogEnabled: boolean;
   autostartEnabled: boolean;
+  startAsAdminEnabled: boolean;
+  autostartMode: "off" | "user" | "elevated";
   minimizeToTrayEnabled: boolean;
+};
+
+export type AppSettings = {
+  turboTimerEnabled: boolean;
+  watchdogEnabled: boolean;
+  minimizeToTrayEnabled: boolean;
+  memoryPurgeConfig: {
+    masterEnabled: boolean;
+    enableStandbyTrigger: boolean;
+    standbyLimitMb: number;
+    enableFreeMemoryTrigger: boolean;
+    freeMemoryLimitMb: number;
+  };
 };
 
 export type ElevationStatus = {
   status: string;
   message: string;
+};
+
+export type TimerResolutionStatus = {
+  minimumMs: number;
+  maximumMs: number;
+  currentMs: number;
+  requestedMs: number | null;
+  enabled: boolean;
+};
+
+export type MemoryStats = {
+  standbyListMb: number;
+  freeMemoryMb: number;
+  totalMemoryMb: number;
+};
+
+export type MemoryPurgeConfig = {
+  masterEnabled: boolean;
+  enableStandbyTrigger: boolean;
+  standbyLimitMb: number;
+  enableFreeMemoryTrigger: boolean;
+  freeMemoryLimitMb: number;
+  totalPurges: number;
 };

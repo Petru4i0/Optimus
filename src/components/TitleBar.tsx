@@ -2,8 +2,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useState, type CSSProperties } from "react";
 
 type TitleBarProps = {
-  activeTab: "home" | "settings";
-  onTabChange: (tab: "home" | "settings") => void;
+  activeTab: "home" | "settings" | "engine";
+  onTabChange: (tab: "home" | "settings" | "engine") => void;
   title?: string;
 };
 
@@ -77,6 +77,18 @@ export default function TitleBar({ activeTab, onTabChange, title = "Optimus" }: 
         >
           Settings
         </button>
+        <button
+          className={`rounded-md border px-3 py-1 text-xs font-medium transition ${
+            activeTab === "engine"
+              ? "border-zinc-100/35 bg-zinc-100/12 text-zinc-100"
+              : "border-zinc-700/80 bg-zinc-900/60 text-zinc-300 hover:border-zinc-500/80 hover:text-zinc-100"
+          }`}
+          style={noDragStyle}
+          onClick={() => onTabChange("engine")}
+          aria-label="Open Engine tab"
+        >
+          Engine
+        </button>
       </div>
 
       <div className="pointer-events-none absolute left-1/2 top-1/2 z-[55] -translate-x-1/2 -translate-y-1/2">
@@ -133,4 +145,3 @@ export default function TitleBar({ activeTab, onTabChange, title = "Optimus" }: 
     </div>
   );
 }
-

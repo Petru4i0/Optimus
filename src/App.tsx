@@ -1,27 +1,19 @@
-﻿
-import { invoke } from "@tauri-apps/api/core";
-import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { info } from "@tauri-apps/plugin-log";
+import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
 import AppIcon from "./components/AppIcon";
 import AppPickerDropdown, { type AppPickerOption } from "./components/AppPickerDropdown";
+import EngineView from "./components/EngineView";
 import Layout from "./components/Layout";
 import ModeSelector from "./components/ModeSelector";
 import PrioritySelect from "./components/PrioritySelect";
 import ProcessGroupCard from "./components/ProcessGroupCard";
 import Toasts from "./components/Toasts";
-import {
-  ApplyResultDto,
-  Config,
-  ElevationStatus,
-  PriorityClass,
-  PriorityOption,
-  ProcessGroupDto,
-  ProcessListResponse,
-  ProcessPrioritySnapshot,
-  RuntimeSettings,
-  ToastKind,
-  ToastMessage,
-  WatchdogConfig,
-} from "./types/process";
+import { useConfigManager } from "./hooks/useConfigManager";
+import { useEngineManager } from "./hooks/useEngineManager";
+import { usePollingScheduler } from "./hooks/usePollingScheduler";
+import { defaultGroupPriority, useProcessManager } from "./hooks/useProcessManager";
+import { useToastManager } from "./hooks/useToastManager";
+import { PriorityOption } from "./types/process";
 
 const PRIORITY_OPTIONS: PriorityOption[] = [
   { label: "Realtime", value: "realtime" },
@@ -32,10 +24,6 @@ const PRIORITY_OPTIONS: PriorityOption[] = [
   { label: "Low", value: "low" },
 ];
 
-function equalsIgnoreCase(a: string, b: string) {
-  return a.toLowerCase() === b.toLowerCase();
-}
-
 function formatUpdatedAt(timestamp: number) {
   const date = new Date(timestamp * 1000);
   if (Number.isNaN(date.getTime())) {
@@ -44,59 +32,104 @@ function formatUpdatedAt(timestamp: number) {
   return date.toLocaleString();
 }
 
-function defaultGroupPriority(group: ProcessGroupDto): PriorityClass {
-  return group.processes[0]?.priority ?? "normal";
-}
-
-function hasConfigName(configs: Config[], name: string) {
-  return configs.some((config) => equalsIgnoreCase(config.name, name));
-}
-
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"home" | "settings">("home");
+  const [activeTab, setActiveTab] = useState<"home" | "settings" | "engine">("home");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const [groups, setGroups] = useState<ProcessGroupDto[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [needsElevation, setNeedsElevation] = useState(false);
-  const [isElevated, setIsElevated] = useState(false);
-  const [lastSync, setLastSync] = useState<number | null>(null);
+  const { toasts, pushToast, dismissToast } = useToastManager();
 
-  const [groupPriority, setGroupPriority] = useState<Record<string, PriorityClass>>({});
-  const [pidPriority, setPidPriority] = useState<Record<number, PriorityClass>>({});
+  const {
+    groups,
+    refreshing,
+    error,
+    needsElevation,
+    isElevated,
+    lastSync,
+    totalProcesses,
+    groupPriority,
+    pidPriority,
+    applyingGroup,
+    endingGroup,
+    applyingPid,
+    killingPid,
+    refreshProcesses,
+    onRefreshRequested,
+    onGroupPriorityChange,
+    onProcessPriorityChange,
+    onApplyProcess,
+    onApplyGroup,
+    onKillProcess,
+    onEndGroup,
+  } = useProcessManager(pushToast);
 
-  const [applyingGroup, setApplyingGroup] = useState<Record<string, boolean>>({});
-  const [endingGroup, setEndingGroup] = useState<Record<string, boolean>>({});
-  const [applyingPid, setApplyingPid] = useState<Record<number, boolean>>({});
-  const [killingPid, setKillingPid] = useState<Record<number, boolean>>({});
+  const {
+    watchdogEnabled,
+    autostartEnabled,
+    startAsAdminEnabled,
+    minimizeToTrayEnabled,
+    timerEnabled,
+    timerCurrentMs,
+    timerBusy,
+    memoryStats,
+    memoryPurgeConfig,
+    memoryConfigBusy,
+    memoryPurgeBusy,
+    elevationPending,
+    loadRuntimeSettings,
+    loadAppSettings,
+    loadTurboTimerStatus,
+    refreshMemoryStats,
+    onRequestElevationClick,
+    onToggleWatchdog,
+    onToggleAutostart,
+    onToggleStartAsAdmin,
+    onToggleMinimizeToTray,
+    onToggleTimerResolution,
+    onMemoryMasterToggle,
+    onStandbyTriggerToggle,
+    onStandbyLimitChange,
+    onStandbyLimitBlur,
+    onFreeMemoryTriggerToggle,
+    onFreeMemoryLimitChange,
+    onFreeMemoryLimitBlur,
+    onPurgeNow,
+  } = useEngineManager(pushToast, isElevated);
 
-  const [configs, setConfigs] = useState<Config[]>([]);
-  const [homeSavedOpen, setHomeSavedOpen] = useState(false);
-  const [settingsSavedOpen, setSettingsSavedOpen] = useState(true);
-
-  const [builderName, setBuilderName] = useState("");
-  const [builderTargetApp, setBuilderTargetApp] = useState("");
-  const [builderTargetPriority, setBuilderTargetPriority] = useState<PriorityClass>("normal");
-  const [builderTargets, setBuilderTargets] = useState<Record<string, PriorityClass>>({});
-
-  const [watchdogConfig, setWatchdogConfig] = useState<WatchdogConfig>({
-    triggerMap: {},
-    stickyModes: {},
-  });
-  const [watchTriggerApp, setWatchTriggerApp] = useState("");
-  const [watchConfigName, setWatchConfigName] = useState("");
-
-  const [watchdogEnabled, setWatchdogEnabled] = useState(true);
-  const [autostartEnabled, setAutostartEnabled] = useState(false);
-  const [minimizeToTrayEnabled, setMinimizeToTrayEnabled] = useState(true);
-  const [elevationPending, setElevationPending] = useState(false);
-
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const toastId = useRef(0);
-  const toastTimersRef = useRef<Map<number, number>>(new Map());
-  const iconCacheRef = useRef<Map<string, string>>(new Map());
-  const knownIconKeysRef = useRef<Set<string>>(new Set());
+  const {
+    configs,
+    homeSavedOpen,
+    settingsSavedOpen,
+    setHomeSavedOpen,
+    setSettingsSavedOpen,
+    builderName,
+    setBuilderName,
+    builderTargetApp,
+    setBuilderTargetApp,
+    builderTargetPriority,
+    setBuilderTargetPriority,
+    builderTargets,
+    watchTriggerApp,
+    setWatchTriggerApp,
+    watchConfigName,
+    setWatchConfigName,
+    watchdogConfig,
+    loadConfigs,
+    loadWatchdog,
+    onAddBuilderTarget,
+    onRemoveBuilderTarget,
+    onSaveConfig,
+    onApplyConfig,
+    onDeleteConfig,
+    onExportConfig,
+    onImportConfig,
+    onCreateShortcut,
+    onSetSticky,
+    onAddWatchMapping,
+    onRemoveWatchMapping,
+    sortedMappings,
+    appIconLookup,
+    equalsIgnoreCase,
+  } = useConfigManager(pushToast, groups, refreshProcesses);
 
   const filteredGroups = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -106,11 +139,6 @@ export default function App() {
     return groups.filter((group) => group.appName.toLowerCase().includes(query));
   }, [groups, searchQuery]);
 
-  const totalProcesses = useMemo(
-    () => groups.reduce((sum, group) => sum + group.total, 0),
-    [groups],
-  );
-
   const appPickerOptions = useMemo<AppPickerOption[]>(
     () =>
       groups
@@ -119,125 +147,48 @@ export default function App() {
     [groups],
   );
 
-  const pushToast = useCallback((kind: ToastKind, message: string) => {
-    toastId.current += 1;
-    const id = toastId.current;
-    setToasts((prev) => [...prev, { id, kind, message }]);
-    const timeoutId = window.setTimeout(() => {
-      setToasts((prev) => prev.filter((item) => item.id !== id));
-      toastTimersRef.current.delete(id);
-    }, 4200);
-    toastTimersRef.current.set(id, timeoutId);
-  }, []);
-
-  const dismissToast = useCallback((id: number) => {
-    const timeoutId = toastTimersRef.current.get(id);
-    if (timeoutId !== undefined) {
-      window.clearTimeout(timeoutId);
-      toastTimersRef.current.delete(id);
-    }
-    setToasts((prev) => prev.filter((item) => item.id !== id));
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      for (const timeoutId of toastTimersRef.current.values()) {
-        window.clearTimeout(timeoutId);
-      }
-      toastTimersRef.current.clear();
-    };
-  }, []);
-
-  const loadConfigs = useCallback(async () => {
-    const loaded = await invoke<Config[]>("load_configs");
-    setConfigs(loaded);
-  }, []);
-
-  const loadWatchdog = useCallback(async () => {
-    const loaded = await invoke<WatchdogConfig>("load_watchdog_config");
-    setWatchdogConfig(loaded);
-  }, []);
-
-  const loadRuntimeSettings = useCallback(async () => {
-    const runtime = await invoke<RuntimeSettings>("get_runtime_settings");
-    setWatchdogEnabled(runtime.watchdogEnabled);
-    setAutostartEnabled(runtime.autostartEnabled);
-    setMinimizeToTrayEnabled(runtime.minimizeToTrayEnabled);
-  }, []);
-
-  const refreshProcesses = useCallback(
-    async (silent = false) => {
-      if (!silent) {
-        setRefreshing(true);
-      }
-
-      try {
-        const response = await invoke<ProcessListResponse>("get_process_list_delta", {
-          knownIconKeys: Array.from(knownIconKeysRef.current),
-        });
-        const nextGroups = response.groups.map((group) => {
-          knownIconKeysRef.current.add(group.iconKey);
-
-          if (group.iconBase64) {
-            iconCacheRef.current.set(group.iconKey, group.iconBase64);
-            return group;
-          }
-
-          const cached = iconCacheRef.current.get(group.iconKey);
-          if (!cached) {
-            return group;
-          }
-
-          return {
-            ...group,
-            iconBase64: cached,
-          };
-        });
-
-        setGroups(nextGroups);
-        setNeedsElevation(response.needsElevation);
-        setIsElevated(response.isElevated);
-        setLastSync(Date.now());
-        setError(null);
-
-        setGroupPriority((prev) => {
-          const next: Record<string, PriorityClass> = {};
-          for (const group of nextGroups) {
-            next[group.appName] = prev[group.appName] ?? defaultGroupPriority(group);
-          }
-          return next;
-        });
-
-        setPidPriority((prev) => {
-          const next: Record<number, PriorityClass> = {};
-          for (const group of nextGroups) {
-            for (const process of group.processes) {
-              next[process.pid] = prev[process.pid] ?? process.priority ?? "normal";
-            }
-          }
-          return next;
-        });
-      } catch (invokeError) {
-        const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-        setError(message);
-        if (!silent) {
-          pushToast("error", message);
-        }
-      } finally {
-        if (!silent) {
-          setRefreshing(false);
-        }
-      }
-    },
-    [pushToast],
+  const pollTasks = useMemo(
+    () => [
+      {
+        id: "processes" as const,
+        intervalMs: 3000,
+        run: () => refreshProcesses(true),
+        critical: false,
+        enabled: true,
+        hiddenBehavior: "pause" as const,
+      },
+      {
+        id: "timer" as const,
+        intervalMs: 1000,
+        run: () => loadTurboTimerStatus(true),
+        critical: true,
+        enabled: true,
+        hiddenBehavior: "throttle" as const,
+      },
+      {
+        id: "memory" as const,
+        intervalMs: 2000,
+        run: () => refreshMemoryStats(true),
+        critical: false,
+        enabled: true,
+        hiddenBehavior: "throttle" as const,
+      },
+    ],
+    [loadTurboTimerStatus, refreshMemoryStats, refreshProcesses],
   );
 
-  const onRefreshRequested = useCallback(() => {
-    void refreshProcesses();
-  }, [refreshProcesses]);
+  usePollingScheduler({
+    tasks: pollTasks,
+    heartbeatMs: 500,
+    hiddenThrottleMultiplier: 3,
+  });
 
   useEffect(() => {
+    void info("Optimus Frontend mounted");
     void refreshProcesses();
+    void loadAppSettings(false);
+    void loadTurboTimerStatus(false);
+    void refreshMemoryStats(false);
     void loadConfigs().catch((e) => {
       pushToast("error", e instanceof Error ? e.message : String(e));
     });
@@ -247,455 +198,16 @@ export default function App() {
     void loadRuntimeSettings().catch((e) => {
       pushToast("error", e instanceof Error ? e.message : String(e));
     });
-  }, [loadConfigs, loadRuntimeSettings, loadWatchdog, pushToast, refreshProcesses]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      void refreshProcesses(true);
-    }, 3000);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [refreshProcesses]);
-
-  const onRequestElevation = useCallback(async () => {
-    setElevationPending(true);
-    try {
-      const status = await invoke<ElevationStatus>("restart_as_administrator");
-      if (status.status === "elevation_pending") {
-        pushToast("info", status.message);
-      } else {
-        setElevationPending(false);
-      }
-    } catch (invokeError) {
-      setElevationPending(false);
-      const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-      pushToast("error", message);
-    }
-  }, [pushToast]);
-
-  const onRequestElevationClick = useCallback(() => {
-    void onRequestElevation();
-  }, [onRequestElevation]);
-
-  const onGroupPriorityChange = useCallback((appName: string, value: PriorityClass) => {
-    setGroupPriority((prev) => ({ ...prev, [appName]: value }));
-  }, []);
-
-  const onProcessPriorityChange = useCallback((pid: number, value: PriorityClass) => {
-    setPidPriority((prev) => ({ ...prev, [pid]: value }));
-  }, []);
-
-  const patchPidPriority = useCallback((snapshot: ProcessPrioritySnapshot) => {
-    setGroups((prev) =>
-      prev.map((group) => ({
-        ...group,
-        processes: group.processes.map((process) => {
-          if (process.pid !== snapshot.pid) {
-            return process;
-          }
-          return {
-            ...process,
-            priority: snapshot.priority,
-            priorityRaw: snapshot.priorityRaw,
-            priorityLabel: snapshot.priorityLabel,
-          };
-        }),
-      })),
-    );
-
-    if (snapshot.priority) {
-      setPidPriority((prev) => ({ ...prev, [snapshot.pid]: snapshot.priority as PriorityClass }));
-    }
-  }, []);
-
-  const onApplyProcess = useCallback(
-    async (_appName: string, pid: number) => {
-      const selected = pidPriority[pid] ?? "normal";
-      setApplyingPid((prev) => ({ ...prev, [pid]: true }));
-
-      try {
-        const result = await invoke<ApplyResultDto>("set_process_priority", {
-          pid,
-          priority: selected,
-        });
-
-        if (!result.success) {
-          pushToast("error", result.message);
-          return;
-        }
-
-        pushToast("success", `PID ${pid}: ${result.message}`);
-
-        const snapshot = await invoke<ProcessPrioritySnapshot>("get_process_priority", { pid });
-        patchPidPriority(snapshot);
-      } catch (invokeError) {
-        const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-        pushToast("error", message);
-      } finally {
-        setApplyingPid((prev) => {
-          const { [pid]: _removed, ...rest } = prev;
-          return rest;
-        });
-      }
-    },
-    [patchPidPriority, pidPriority, pushToast],
-  );
-
-  const onApplyGroup = useCallback(
-    async (group: ProcessGroupDto) => {
-      const selected = groupPriority[group.appName] ?? defaultGroupPriority(group);
-      setApplyingGroup((prev) => ({ ...prev, [group.appName]: true }));
-
-      try {
-        const results = await invoke<ApplyResultDto[]>("set_group_priority", {
-          pids: group.processes.map((process) => process.pid),
-          priority: selected,
-        });
-
-        const successCount = results.filter((result) => result.success).length;
-        const failed = results.length - successCount;
-
-        if (failed > 0) {
-          pushToast("info", `Group ${group.appName}: applied ${successCount}, failed ${failed}`);
-        } else {
-          pushToast("success", `Group ${group.appName}: applied ${successCount}`);
-        }
-
-        await refreshProcesses(true);
-      } catch (invokeError) {
-        const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-        pushToast("error", message);
-      } finally {
-        setApplyingGroup((prev) => {
-          const { [group.appName]: _removed, ...rest } = prev;
-          return rest;
-        });
-      }
-    },
-    [groupPriority, pushToast, refreshProcesses],
-  );
-
-  const onKillProcess = useCallback(
-    async (_appName: string, pid: number) => {
-      setKillingPid((prev) => ({ ...prev, [pid]: true }));
-
-      try {
-        const result = await invoke<ApplyResultDto>("kill_process", { pid });
-        if (!result.success) {
-          pushToast("error", result.message);
-          return;
-        }
-
-        pushToast("success", `PID ${pid}: ${result.message}`);
-        await refreshProcesses(true);
-      } catch (invokeError) {
-        const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-        pushToast("error", message);
-      } finally {
-        setKillingPid((prev) => {
-          const { [pid]: _removed, ...rest } = prev;
-          return rest;
-        });
-      }
-    },
-    [pushToast, refreshProcesses],
-  );
-
-  const onEndGroup = useCallback(
-    async (group: ProcessGroupDto) => {
-      setEndingGroup((prev) => ({ ...prev, [group.appName]: true }));
-
-      try {
-        const tasks = group.processes.map((process) =>
-          invoke<ApplyResultDto>("kill_process", { pid: process.pid }),
-        );
-        const settled = await Promise.allSettled(tasks);
-
-        let successCount = 0;
-        let failedCount = 0;
-
-        for (const item of settled) {
-          if (item.status === "fulfilled" && item.value.success) {
-            successCount += 1;
-          } else {
-            failedCount += 1;
-          }
-        }
-
-        if (failedCount > 0) {
-          pushToast("info", `${group.appName}: terminated ${successCount}, failed ${failedCount}`);
-        } else {
-          pushToast("success", `${group.appName}: terminated ${successCount}`);
-        }
-
-        await refreshProcesses(true);
-      } catch (invokeError) {
-        const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-        pushToast("error", message);
-      } finally {
-        setEndingGroup((prev) => {
-          const { [group.appName]: _removed, ...rest } = prev;
-          return rest;
-        });
-      }
-    },
-    [pushToast, refreshProcesses],
-  );
-
-  const onAddBuilderTarget = useCallback(() => {
-    const appName = builderTargetApp.trim();
-    if (!appName) {
-      pushToast("error", "Select target app");
-      return;
-    }
-
-    setBuilderTargets((prev) => ({ ...prev, [appName]: builderTargetPriority }));
-    pushToast("success", `${appName} mapped to ${builderTargetPriority}`);
-  }, [builderTargetApp, builderTargetPriority, pushToast]);
-
-  const onRemoveBuilderTarget = useCallback((appName: string) => {
-    setBuilderTargets((prev) => {
-      const { [appName]: _removed, ...rest } = prev;
-      return rest;
-    });
-  }, []);
-
-  const onSaveConfig = useCallback(async () => {
-    const name = builderName.trim();
-    if (!name) {
-      pushToast("error", "Enter config name");
-      return;
-    }
-
-    if (Object.keys(builderTargets).length === 0) {
-      pushToast("error", "Add at least one target");
-      return;
-    }
-
-    try {
-      await invoke("save_config", { name, configMap: builderTargets });
-      pushToast("success", `Config '${name}' saved`);
-      setBuilderName("");
-      setBuilderTargets({});
-      await loadConfigs();
-    } catch (invokeError) {
-      const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-      pushToast("error", message);
-    }
-  }, [builderName, builderTargets, loadConfigs, pushToast]);
-
-  const onApplyConfig = useCallback(
-    async (config: Config) => {
-      let applied = 0;
-      let failed = 0;
-      let skipped = 0;
-
-      const entries = Object.entries(config.configMap);
-      for (const [appName, priority] of entries) {
-        const group = groups.find((item) => equalsIgnoreCase(item.appName, appName));
-        if (!group) {
-          skipped += 1;
-          continue;
-        }
-
-        const tasks = group.processes.map((process) =>
-          invoke<ApplyResultDto>("set_process_priority", {
-            pid: process.pid,
-            priority,
-          }),
-        );
-
-        const settled = await Promise.allSettled(tasks);
-        for (const result of settled) {
-          if (result.status === "fulfilled" && result.value.success) {
-            applied += 1;
-          } else {
-            failed += 1;
-          }
-        }
-      }
-
-      if (failed > 0) {
-        pushToast("info", `${config.name}: applied ${applied}, skipped ${skipped}, failed ${failed}`);
-      } else {
-        pushToast("success", `${config.name}: applied ${applied}, skipped ${skipped}`);
-      }
-
-      await refreshProcesses(true);
-    },
-    [groups, pushToast, refreshProcesses],
-  );
-
-  const onDeleteConfig = useCallback(
-    async (name: string) => {
-      try {
-        await invoke("delete_config", { name });
-        pushToast("success", `Config '${name}' deleted`);
-        await loadConfigs();
-        await loadWatchdog();
-      } catch (invokeError) {
-        const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-        pushToast("error", message);
-      }
-    },
-    [loadConfigs, loadWatchdog, pushToast],
-  );
-
-  const onExportConfig = useCallback(
-    async (name: string) => {
-      try {
-        await invoke("export_config", { name });
-        pushToast("success", `Config '${name}' exported`);
-      } catch (invokeError) {
-        const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-        pushToast("error", message);
-      }
-    },
-    [pushToast],
-  );
-
-  const onImportConfig = useCallback(async () => {
-    try {
-      const imported = await invoke<string>("import_config");
-      pushToast("success", `Imported config '${imported}'`);
-      await loadConfigs();
-    } catch (invokeError) {
-      const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-      pushToast("error", message);
-    }
-  }, [loadConfigs, pushToast]);
-
-  const onCreateShortcut = useCallback(
-    async (configName: string) => {
-      try {
-        await invoke("create_desktop_shortcut", { configName });
-        pushToast("success", `Shortcut created for '${configName}'`);
-      } catch (invokeError) {
-        const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-        pushToast("error", message);
-      }
-    },
-    [pushToast],
-  );
-
-  const onSetSticky = useCallback(
-    async (configName: string, mode: 0 | 1 | 2) => {
-      try {
-        await invoke("set_config_sticky", { configName, mode });
-        await loadWatchdog();
-        const modeLabel = mode === 0 ? "off" : mode === 1 ? "always" : "smart";
-        pushToast("success", `${configName}: live ${modeLabel}`);
-      } catch (invokeError) {
-        const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-        pushToast("error", message);
-      }
-    },
-    [loadWatchdog, pushToast],
-  );
-
-  const onAddWatchMapping = useCallback(async () => {
-    const appName = watchTriggerApp.trim();
-    const configName = watchConfigName.trim();
-
-    if (!appName) {
-      pushToast("error", "Select trigger application");
-      return;
-    }
-
-    if (!configName) {
-      pushToast("error", "Select a config");
-      return;
-    }
-
-    if (!hasConfigName(configs, configName)) {
-      pushToast("error", "Selected config no longer exists");
-      return;
-    }
-
-    try {
-      await invoke("upsert_watchdog_mapping", { appName, configName });
-      setWatchTriggerApp("");
-      await loadWatchdog();
-      pushToast("success", `Mapping saved: ${appName} -> ${configName}`);
-    } catch (invokeError) {
-      const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-      pushToast("error", message);
-    }
-  }, [configs, loadWatchdog, pushToast, watchConfigName, watchTriggerApp]);
-
-  const onRemoveWatchMapping = useCallback(
-    async (appName: string) => {
-      try {
-        await invoke("remove_watchdog_mapping", { appName });
-        await loadWatchdog();
-        pushToast("success", `Mapping removed: ${appName}`);
-      } catch (invokeError) {
-        const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-        pushToast("error", message);
-      }
-    },
-    [loadWatchdog, pushToast],
-  );
-
-  const onToggleWatchdog = useCallback(
-    async (enabled: boolean) => {
-      setWatchdogEnabled(enabled);
-      try {
-        await invoke("toggle_watchdog", { state: enabled });
-      } catch (invokeError) {
-        setWatchdogEnabled((prev) => !prev);
-        const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-        pushToast("error", message);
-      }
-    },
-    [pushToast],
-  );
-
-  const onToggleAutostart = useCallback(
-    async (enabled: boolean) => {
-      setAutostartEnabled(enabled);
-      try {
-        await invoke("toggle_autostart", { enabled });
-      } catch (invokeError) {
-        setAutostartEnabled((prev) => !prev);
-        const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-        pushToast("error", message);
-      }
-    },
-    [pushToast],
-  );
-
-  const onToggleMinimizeToTray = useCallback(
-    async (enabled: boolean) => {
-      setMinimizeToTrayEnabled(enabled);
-      try {
-        await invoke("toggle_minimize_to_tray", { enabled });
-      } catch (invokeError) {
-        setMinimizeToTrayEnabled((prev) => !prev);
-        const message = invokeError instanceof Error ? invokeError.message : String(invokeError);
-        pushToast("error", message);
-      }
-    },
-    [pushToast],
-  );
-
-  const sortedMappings = useMemo(
-    () =>
-      Object.entries(watchdogConfig.triggerMap).sort((a, b) =>
-        a[0].toLowerCase().localeCompare(b[0].toLowerCase()),
-      ),
-    [watchdogConfig.triggerMap],
-  );
-
-  const appIconLookup = useMemo(() => {
-    const map = new Map<string, string | null>();
-    for (const group of groups) {
-      map.set(group.appName.toLowerCase(), group.iconBase64);
-    }
-    return map;
-  }, [groups]);
+  }, [
+    loadAppSettings,
+    loadConfigs,
+    loadRuntimeSettings,
+    loadWatchdog,
+    loadTurboTimerStatus,
+    pushToast,
+    refreshMemoryStats,
+    refreshProcesses,
+  ]);
 
   const renderToggleSwitch = (
     checked: boolean,
@@ -769,7 +281,10 @@ export default function App() {
               const liveEnabled = liveMode !== 0;
               const triggerApps = Object.entries(watchdogConfig.triggerMap)
                 .filter(([, mappedConfig]) => equalsIgnoreCase(mappedConfig, config.name))
-                .map(([appName]) => groups.find((group) => equalsIgnoreCase(group.appName, appName))?.appName ?? appName);
+                .map(
+                  ([appName]) =>
+                    groups.find((group) => equalsIgnoreCase(group.appName, appName))?.appName ?? appName,
+                );
               const triggerSummary =
                 triggerApps.length > 0
                   ? `${triggerApps[0]}${triggerApps.length > 1 ? ` +${triggerApps.length - 1}` : ""}`
@@ -918,7 +433,7 @@ export default function App() {
               )}
             </section>
           </div>
-        ) : (
+        ) : activeTab === "settings" ? (
           <div className="space-y-4">
             {renderSavedConfigsSection(settingsSavedOpen, setSettingsSavedOpen, "settings")}
 
@@ -1095,6 +610,16 @@ export default function App() {
                     "Toggle start with Windows",
                   )}
                 </label>
+                <label className="ml-4 flex items-center justify-between rounded-xl border border-zinc-700 bg-zinc-900/40 px-3 py-2 text-sm">
+                  <span className="text-zinc-300">Start as Administrator (Bypass UAC)</span>
+                  {renderToggleSwitch(
+                    startAsAdminEnabled,
+                    (next) => {
+                      void onToggleStartAsAdmin(next);
+                    },
+                    "Toggle start as administrator",
+                  )}
+                </label>
 
                 <label className="flex items-center justify-between rounded-xl border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm">
                   <span className="text-zinc-200">Minimize to Tray on Close</span>
@@ -1109,6 +634,36 @@ export default function App() {
               </div>
             </section>
           </div>
+        ) : (
+          <EngineView
+            timerEnabled={timerEnabled}
+            timerCurrentMs={timerCurrentMs}
+            timerBusy={timerBusy}
+            onTimerToggle={(enabled) => {
+              void onToggleTimerResolution(enabled);
+            }}
+            masterEnabled={memoryPurgeConfig.masterEnabled}
+            standbyListMb={memoryStats.standbyListMb}
+            freeMemoryMb={memoryStats.freeMemoryMb}
+            totalMemoryMb={memoryStats.totalMemoryMb}
+            enableStandbyTrigger={memoryPurgeConfig.enableStandbyTrigger}
+            standbyLimitMb={memoryPurgeConfig.standbyLimitMb}
+            enableFreeMemoryTrigger={memoryPurgeConfig.enableFreeMemoryTrigger}
+            freeMemoryLimitMb={memoryPurgeConfig.freeMemoryLimitMb}
+            totalPurges={memoryPurgeConfig.totalPurges}
+            configBusy={memoryConfigBusy}
+            purgeBusy={memoryPurgeBusy}
+            onMasterToggle={onMemoryMasterToggle}
+            onStandbyTriggerToggle={onStandbyTriggerToggle}
+            onStandbyLimitChange={onStandbyLimitChange}
+            onStandbyLimitBlur={onStandbyLimitBlur}
+            onFreeMemoryTriggerToggle={onFreeMemoryTriggerToggle}
+            onFreeMemoryLimitChange={onFreeMemoryLimitChange}
+            onFreeMemoryLimitBlur={onFreeMemoryLimitBlur}
+            onPurgeNow={() => {
+              void onPurgeNow();
+            }}
+          />
         )}
       </Layout>
 

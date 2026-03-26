@@ -10,6 +10,44 @@ import {
 } from "react";
 import { type PriorityClass, type PriorityOption } from "../types/process";
 
+type OutsideClickEntry = {
+  contains: (target: Node) => boolean;
+  close: () => void;
+};
+
+const outsideClickRegistry = new Map<number, OutsideClickEntry>();
+let outsideClickListenerAttached = false;
+let outsideClickIdCounter = 0;
+
+const handleGlobalOutsideClick = (event: MouseEvent) => {
+  const target = event.target as Node | null;
+  if (!target) {
+    return;
+  }
+
+  for (const entry of outsideClickRegistry.values()) {
+    if (!entry.contains(target)) {
+      entry.close();
+    }
+  }
+};
+
+const ensureOutsideClickListener = () => {
+  if (outsideClickListenerAttached) {
+    return;
+  }
+  window.addEventListener("mousedown", handleGlobalOutsideClick);
+  outsideClickListenerAttached = true;
+};
+
+const cleanupOutsideClickListener = () => {
+  if (!outsideClickListenerAttached || outsideClickRegistry.size > 0) {
+    return;
+  }
+  window.removeEventListener("mousedown", handleGlobalOutsideClick);
+  outsideClickListenerAttached = false;
+};
+
 type PrioritySelectProps = {
   options: PriorityOption[];
   value: PriorityClass;
@@ -26,6 +64,7 @@ export default function PrioritySelect({
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const outsideClickIdRef = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
 
@@ -62,20 +101,33 @@ export default function PrioritySelect({
   }, []);
 
   useEffect(() => {
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      const inRoot = rootRef.current?.contains(target);
-      const inMenu = menuRef.current?.contains(target);
-      if (!inRoot && !inMenu) {
-        setOpen(false);
+    if (!open) {
+      if (outsideClickIdRef.current !== null) {
+        outsideClickRegistry.delete(outsideClickIdRef.current);
+        outsideClickIdRef.current = null;
+        cleanupOutsideClickListener();
       }
-    };
+      return;
+    }
 
-    window.addEventListener("mousedown", handlePointerDown);
+    outsideClickIdCounter += 1;
+    const entryId = outsideClickIdCounter;
+    outsideClickIdRef.current = entryId;
+    outsideClickRegistry.set(entryId, {
+      contains: (target) =>
+        Boolean(rootRef.current?.contains(target) || menuRef.current?.contains(target)),
+      close: () => setOpen(false),
+    });
+    ensureOutsideClickListener();
+
     return () => {
-      window.removeEventListener("mousedown", handlePointerDown);
+      outsideClickRegistry.delete(entryId);
+      if (outsideClickIdRef.current === entryId) {
+        outsideClickIdRef.current = null;
+      }
+      cleanupOutsideClickListener();
     };
-  }, []);
+  }, [open]);
 
   useEffect(() => {
     if (!open) {
