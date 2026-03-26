@@ -1,72 +1,87 @@
-# ⚡ Optimus
+<div align="center">
+  <h1>Optimus</h1>
+  <img src="https://img.shields.io/github/v/release/PetruchiO/optimus?style=for-the-badge" alt="Version"/>  
+  <img src="https://img.shields.io/badge/platform-windows-0078d7?style=for-the-badge&logo=windows" alt="Windows"/>  
+  <img src="https://img.shields.io/badge/Rust-black?style=for-the-badge&logo=rust" alt="Rust"/>  
+  <img src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React"/>  
+  <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License"/>
+</div>
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue?style=for-the-badge)
-![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)
-![Rust](https://img.shields.io/badge/Built_with-Rust-black?style=for-the-badge&logo=rust)
-![Platform](https://img.shields.io/badge/platform-windows-0078d7?style=for-the-badge&logo=windows)
+<br>
 
-> **Zero-overhead, context-aware process priority manager.** > Say goodbye to clunky 90s interfaces. Optimus delivers enterprise-grade process management with a modern, glass-morphism UI. Built on a lightning-fast Rust core and a React frontend.
+**Optimus** is a zero-overhead, brutal process priority manager for Windows. It doesn't just blindly force priorities — it uses a context-aware engine to inject priorities exactly when needed, and sleeps when you alt-tab. Built with a lightning-fast Rust core and a modern React frontend.
 
-Optimus allows you to intelligently control Windows process priorities. Unlike legacy tools that blindly force priorities and consume CPU cycles, Optimus uses a Smart Context Engine to manage your system resources exactly when you need them—and sleeps when you don't.
-
----
-## 🖼 Screenshots
+## Screenshots
 
 <p align="center">
-  <img src="assets/home.png" width="400" alt="Main UI">
-  <img src="assets/setting.png" width="400" alt="Settings View">
+  <img src="assets/home.png" width="45%" alt="Main UI">
+  <img src="assets/setting.png" width="45%" alt="Settings View">
 </p> 
 
-## 🔥 Key Features
+## Features
 
-### 🧠 Core Engine (Rust-Powered)
-- **Zero-Overhead Watchdog:** A background `std::thread` loop written in pure Rust. It operates entirely independently of the UI.
-- **Smart Polling (Read/Compare/Set):** Optimus doesn't spam Windows API commands. It reads the current priority, compares it to your config, and executes `SetPriorityClass` *only* if there's a mismatch. 
-- **Atomic File I/O:** Your configurations are bulletproof. Optimus uses temporary file writes + `sync_all` + atomic rename operations wrapped in an `RwLock`. No data corruption, even during a sudden power loss.
-- **Native UAC Elevation:** Seamlessly request Administrator privileges via `ShellExecuteW` with graceful fallback and UI synchronization.
+- **Sniper Mode Watchdog**: The Rust background loop doesn't scan the whole OS. It targets only the processes in your active config, dropping CPU usage to ~0.01%.
+- **UI Cryo-Sleep**: When minimized to the system tray, the React frontend completely halts process polling. Zero rendering, zero IPC overhead.
+- **Smart / Always Modes**: Set a priority permanently (*Always*), or link it to a specific game/app (*Smart*). Optimus releases the priority lock the second you close the game.
+- **Delta IPC Polling**: Icons are hashed using `blake3` (absolute path + size). The backend only sends missing icons to the UI, reducing Bridge payloads by 99%.
+- **Atomic Configs**: Configurations are saved using temporary files and atomic `ReplaceFileW` operations. No corrupted JSONs during power outages.
+- **System Tray Integration**: True background ninja. Minimize to tray with quick-action context menus (e.g., "Purge Memory").
 
-### 🎯 Smart Enforcement Modes
-Choose how aggressively Optimus manages your system:
-- **Mode [0] Off:** Manual application only.
-- **Mode [1] Always:** Persistent 24/7 enforcement. Perfect for streaming software (OBS) or critical background tasks. 
-- **Mode [2] Smart:** Context-aware enforcement. The priority is held *only* while a linked Trigger App (e.g., your favorite game) is running. When you close the game, Optimus releases the priority lock to save resources.
+## Dependencies
 
-### ⚡ Hyper-Optimized Performance
-- **IPC Delta Polling:** The React frontend caches process icons (Base64) using deterministic hashed Exe-path keys. The Rust backend sends Delta-updates (only sending icons the UI doesn't have), reducing IPC payload size by 99%.
-- **O(1) Process Indexing:** The Watchdog builds a `HashMap` index of running processes every tick. Enforcement lookups happen instantly without nested O(N^2) loops.
-- **React.memo Optimization:** The UI utilizes strict memoization and custom comparators. Only the specific row of a process that changed priority will rerender, eliminating UI micro-stutters.
+Optimus is built on a decoupled architecture (Tauri v2):
+- **Core**: `Rust` (Handles WinAPI, Watchdog, Memory Purging, UAC Elevation).
+- **Frontend**: `React` + `TypeScript` + `TailwindCSS` (Glass-morphism UI, strictly memoized).
+- **Hashing**: `blake3` (Cryptographically secure deterministic icon hashing).
+- **Bridge**: `Tauri IPC` (Optimized asynchronous message passing).
 
-### 🎨 Premium UI/UX
-- **Dark Monochrome Aesthetic:** Clean Zinc/White color palette with glass-card components and smooth transitions.
-- **Floating Navigation:** Custom frameless Tauri window with integrated Window controls and a floating settings dock.
-- **Live Mode Selector:** A sleek popover to quickly switch between *Always* and *Smart* enforcement modes.
-- **Grouped Process View:** Processes are automatically grouped by application with expand/collapse functionality.
+## Installation
 
-### 🛡️ Security & Stability
-- **Strict CSP:** Built with a rigid Content Security Policy (`default-src 'self'`) to prevent XSS and injection attacks via malicious executable names.
-- **Native Crash Guard:** Startup failures are handled gracefully with native Windows dialogs (`MessageBoxW`), no silent panics.
-- **Autostart & Tray:** Includes minimize-to-tray behavior and `tauri-plugin-autostart` for seamless daily use.
+1. Download the latest `.exe` or `.msi` from [GitHub Releases](https://github.com/PetruchiO/optimus/releases).
+2. Run the installer.
+3. Launch **Optimus** (Optionally run as Administrator for system-level process control).
 
----
+## Usage
 
-## 🛠️ Architecture
+1. Open Optimus and locate your target game/application in the list.
+2. Select a priority (e.g., `High`).
+3. Choose the enforcement mode:
+   - **Always**: Forces priority 24/7.
+   - **Smart**: Select a "Trigger App". The priority is only enforced while the trigger app is running.
+4. Minimize the app. It will retreat to the System Tray and manage your PC in the background.
 
-Optimus operates on a decoupled architecture:
-1. **The Backend (`src-tauri/src/main.rs`):** Interacts with Windows APIs (`sysinfo`, WinAPI). Handles the 5-second Watchdog loop, file system locks, and raw process manipulation.
-2. **The Bridge (Tauri IPC):** Facilitates communication using a highly optimized Delta-update protocol to keep memory usage negligible.
-3. **The Frontend (`src/App.tsx`):** A React/TypeScript application styled with Tailwind CSS, responsible purely for state presentation and configuration building.
+## Compiling from Source
 
----
-
-## 🚀 Installation & Build Instructions
-
-### Prerequisites
-- [Rust](https://www.rust-lang.org/tools/install) (latest stable)
-- [Node.js](https://nodejs.org/) (v18+)
-- [Tauri CLI](https://tauri.app/v1/guides/getting-started/setup/)
-
-### Development
 1. Clone the repository:
    ```bash
-   git clone [https://github.com/yourusername/optimus.git](https://github.com/yourusername/optimus.git)
+   git clone [https://github.com/PetruchiO/optimus.git](https://github.com/PetruchiO/optimus.git)
+   ```
+2. Navigate to the project directory:
+   ```bash
    cd optimus
+   ```
+3. Install Node dependencies:
+   ```bash
+   npm install
+   ```
+4. Run in Development mode:
+   ```bash
+   npm run tauri dev
+   ```
+5. Build the optimized Release binary (`opt-level = "z"`, `lto = true`):
+   ```bash
+   npm run tauri build
+   ```
+
+## Contributing
+
+Contributions, issues, and feature requests are welcome! 
+1. Fork the project.
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`).
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
+4. Push to the branch (`git push origin feature/AmazingFeature`).
+5. Open a Pull Request.
+
+## Credits
+- **Creator & Lead Developer**: Egor (PetruchiO)
+- **License**: Distributed under the MIT License. See `LICENSE` for more information.
