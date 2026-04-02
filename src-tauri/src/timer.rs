@@ -1,5 +1,10 @@
-use crate::*;
-
+use crate::core::{
+    c_void, error, GetCurrentProcess, NtQueryTimerResolution, NtSetTimerResolution,
+    ProcessPowerThrottling, SetProcessInformation, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+    PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+    PROCESS_POWER_THROTTLING_STATE,
+};
+use crate::types::{AppError, RuntimeControlState, TimerResolutionDto};
 pub(crate) fn nt_success(status: i32) -> bool {
     status >= 0
 }
@@ -126,3 +131,4 @@ pub(crate) fn disable_process_power_throttling() -> Result<(), AppError> {
     }
     .map_err(|e| AppError::Message(format!("SetProcessInformation(ProcessPowerThrottling) failed: {e}")))
 }
+

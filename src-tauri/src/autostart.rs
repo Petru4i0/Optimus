@@ -1,4 +1,5 @@
-use crate::*;
+use crate::core::{Command, ELEVATED_AUTOSTART_TASK_NAME};
+use std::os::windows::process::CommandExt;
 
 pub(crate) fn set_elevated_autostart_task(enabled: bool) -> Result<(), String> {
     let exe = std::env::current_exe()
@@ -7,6 +8,7 @@ pub(crate) fn set_elevated_autostart_task(enabled: bool) -> Result<(), String> {
 
     let output = if enabled {
         Command::new("schtasks")
+            .creation_flags(0x08000000)
             .arg("/create")
             .arg("/tn")
             .arg(ELEVATED_AUTOSTART_TASK_NAME)
@@ -21,6 +23,7 @@ pub(crate) fn set_elevated_autostart_task(enabled: bool) -> Result<(), String> {
             .map_err(|e| format!("failed to execute schtasks /create: {e}"))?
     } else {
         Command::new("schtasks")
+            .creation_flags(0x08000000)
             .arg("/delete")
             .arg("/tn")
             .arg(ELEVATED_AUTOSTART_TASK_NAME)
@@ -50,6 +53,7 @@ pub(crate) fn set_elevated_autostart_task(enabled: bool) -> Result<(), String> {
 
 pub(crate) fn is_elevated_autostart_task_enabled() -> Result<bool, String> {
     let output = Command::new("schtasks")
+        .creation_flags(0x08000000)
         .arg("/query")
         .arg("/tn")
         .arg(ELEVATED_AUTOSTART_TASK_NAME)
@@ -58,25 +62,10 @@ pub(crate) fn is_elevated_autostart_task_enabled() -> Result<bool, String> {
     Ok(output.status.success())
 }
 
-pub(crate) fn configure_autostart_impl(app: tauri::AppHandle, enabled: bool, as_admin: bool) -> Result<(), String> {
-    let manager = app.autolaunch();
-    if enabled {
-        if as_admin {
-            manager
-                .disable()
-                .map_err(|e| format!("failed to disable standard autostart: {e}"))?;
-            set_elevated_autostart_task(true)?;
-        } else {
-            set_elevated_autostart_task(false)?;
-            manager
-                .enable()
-                .map_err(|e| format!("failed to enable autostart: {e}"))?;
-        }
-    } else {
-        manager
-            .disable()
-            .map_err(|e| format!("failed to disable autostart: {e}"))?;
-        set_elevated_autostart_task(false)?;
-    }
-    Ok(())
+pub(crate) fn configure_autostart_impl(
+    _app: tauri::AppHandle,
+    enabled: bool,
+    _as_admin: bool,
+) -> Result<(), String> {
+    set_elevated_autostart_task(enabled)
 }

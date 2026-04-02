@@ -1,4 +1,4 @@
-import { ToastMessage } from "../types/process";
+import { ToastMessage } from "../types/config";
 
 type ToastsProps = {
   items: ToastMessage[];
@@ -8,13 +8,13 @@ type ToastsProps = {
 function toneClass(kind: ToastMessage["kind"]) {
   switch (kind) {
     case "success":
-      return "border-zinc-200/35 bg-zinc-200/12 text-zinc-100";
+      return "border-zinc-500/35 bg-zinc-200/12 text-zinc-100";
     case "error":
-      return "border-zinc-300/35 bg-zinc-700/35 text-zinc-100";
+      return "border-zinc-500 bg-zinc-700 text-zinc-100";
     case "warning":
-      return "border-zinc-300/30 bg-zinc-800/55 text-zinc-100";
+      return "border-zinc-500 bg-zinc-800 text-zinc-100";
     default:
-      return "border-zinc-400/30 bg-zinc-800/45 text-zinc-100";
+      return "border-zinc-500 bg-zinc-800 text-zinc-100";
   }
 }
 
@@ -44,3 +44,4 @@ export default function Toasts({ items, onDismiss }: ToastsProps) {
     </div>
   );
 }
+

@@ -1,12 +1,36 @@
+import { useEffect, useState } from "react";
+import { useIconObjectUrl } from "../hooks/useIconObjectUrl";
+
 type AppIconProps = {
   appName: string;
   iconBase64?: string | null;
+  iconKey?: string | null;
   className?: string;
 };
 
-export default function AppIcon({ appName, iconBase64, className = "h-8 w-8" }: AppIconProps) {
-  if (iconBase64) {
-    return <img src={iconBase64} alt={appName} className={`${className} object-contain`} />;
+export default function AppIcon({
+  appName,
+  iconBase64,
+  iconKey,
+  className = "h-8 w-8",
+}: AppIconProps) {
+  const iconObjectUrl = useIconObjectUrl(iconKey);
+  const iconSrc = iconBase64 ?? iconObjectUrl;
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  useEffect(() => {
+    setLoadFailed(false);
+  }, [iconSrc]);
+
+  if (iconSrc && !loadFailed) {
+    return (
+      <img
+        src={iconSrc}
+        alt={appName}
+        className={`${className} object-contain`}
+        onError={() => setLoadFailed(true)}
+      />
+    );
   }
 
   return (

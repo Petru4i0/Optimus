@@ -1,5 +1,18 @@
-use crate::*;
-
+use crate::core::{
+    c_void, last_error_code, warn, AdjustTokenPrivileges, GetCurrentProcess, GetSystemInfo,
+    GlobalMemoryStatusEx, LookupPrivilegeValueW, NtQuerySystemInformation,
+    NtSetSystemInformation, OpenProcessToken, PCWSTR, ERROR_NOT_ALL_ASSIGNED, HANDLE,
+    LUID, LUID_AND_ATTRIBUTES, MEMORYSTATUSEX, SE_PRIVILEGE_ENABLED, SYSTEM_INFO,
+    SYSTEM_MEMORY_LIST_INFORMATION_CLASS, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY,
+    MEMORY_PURGE_STANDBY_LIST, Ordering,
+};
+use crate::elevation::to_wide;
+use crate::timer::nt_success;
+use crate::types::{
+    AppError, MemoryPurgeConfigDto, MemoryPurgeConfigState, MemoryStatsDto, OwnedHandle,
+    RuntimeControlState, SystemMemoryListInformation,
+};
+use tauri::{AppHandle, Emitter};
 pub(crate) fn enable_profile_privilege() -> Result<(), AppError> {
     let mut token = HANDLE::default();
     unsafe {
@@ -64,60 +77,95 @@ pub(crate) fn build_memory_purge_config_dto(
         enable_free_memory_trigger: config.enable_free_memory_trigger,
         free_memory_limit_mb: config.free_memory_limit_mb,
         total_purges: runtime.memory_purge_count.load(Ordering::Relaxed),
+        total_cleared_mb: runtime.memory_purge_cleared_mb.load(Ordering::Relaxed),
     })
 }
 
-pub(crate) fn query_system_memory_list() -> Result<SystemMemoryListInformation, AppError> {
-    let mut info = SystemMemoryListInformation::default();
-    let mut return_length = 0u32;
+trait MemoryMetricsProvider {
+    fn query_system_memory_list(&self) -> Result<SystemMemoryListInformation, AppError>;
+    fn read_stats(&self) -> Result<MemoryStatsDto, AppError>;
+}
 
-    let status = unsafe {
-        NtQuerySystemInformation(
-            SYSTEM_MEMORY_LIST_INFORMATION_CLASS,
-            (&mut info as *mut SystemMemoryListInformation).cast::<c_void>(),
-            std::mem::size_of::<SystemMemoryListInformation>() as u32,
-            &mut return_length,
-        )
-    };
+struct DefaultMemoryMetricsProvider;
 
-    if !nt_success(status) {
-        return Err(AppError::Message(format!(
-            "NtQuerySystemInformation(SystemMemoryListInformation) failed with NTSTATUS 0x{status:08X}"
-        )));
+impl MemoryMetricsProvider for DefaultMemoryMetricsProvider {
+    fn query_system_memory_list(&self) -> Result<SystemMemoryListInformation, AppError> {
+        let mut info = SystemMemoryListInformation::default();
+        let mut return_length = 0u32;
+
+        let status = unsafe {
+            NtQuerySystemInformation(
+                SYSTEM_MEMORY_LIST_INFORMATION_CLASS,
+                (&mut info as *mut SystemMemoryListInformation).cast::<c_void>(),
+                std::mem::size_of::<SystemMemoryListInformation>() as u32,
+                &mut return_length,
+            )
+        };
+
+        if !nt_success(status) {
+            return Err(AppError::Message(format!(
+                "NtQuerySystemInformation(SystemMemoryListInformation) failed with NTSTATUS 0x{status:08X}"
+            )));
+        }
+
+        Ok(info)
     }
 
-    Ok(info)
+    fn read_stats(&self) -> Result<MemoryStatsDto, AppError> {
+        let mut memory_status = MEMORYSTATUSEX::default();
+        memory_status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+        unsafe { GlobalMemoryStatusEx(&mut memory_status) }
+            .map_err(|e| AppError::Message(format!("GlobalMemoryStatusEx failed: {e}")))?;
+
+        let total_memory_mb = memory_status.ullTotalPhys.saturating_div(1024 * 1024);
+        let free_memory_mb = memory_status.ullAvailPhys.saturating_div(1024 * 1024);
+
+        let memory_list = match self.query_system_memory_list() {
+            Ok(value) => value,
+            Err(error) => {
+                warn!(
+                    "memory list query failed, using GlobalMemoryStatusEx fallback: {}",
+                    error
+                );
+                return Ok(MemoryStatsDto {
+                    standby_list_mb: 0,
+                    free_memory_mb,
+                    total_memory_mb,
+                });
+            }
+        };
+
+        let standby_pages: u64 = memory_list
+            .page_count_by_priority
+            .iter()
+            .map(|value| *value as u64)
+            .sum();
+        let free_pages =
+            (memory_list.free_page_count as u64).saturating_add(memory_list.zero_page_count as u64);
+
+        let mut sys_info = SYSTEM_INFO::default();
+        unsafe {
+            GetSystemInfo(&mut sys_info);
+        }
+        let page_size = u64::from(sys_info.dwPageSize);
+        let standby_list_mb = standby_pages.saturating_mul(page_size).saturating_div(1024 * 1024);
+        let free_from_nt_mb = free_pages.saturating_mul(page_size).saturating_div(1024 * 1024);
+
+        Ok(MemoryStatsDto {
+            standby_list_mb,
+            free_memory_mb: free_from_nt_mb,
+            total_memory_mb,
+        })
+    }
 }
+
+fn default_memory_metrics_provider() -> DefaultMemoryMetricsProvider {
+    DefaultMemoryMetricsProvider
+}
+
 
 pub(crate) fn read_memory_stats() -> Result<MemoryStatsDto, AppError> {
-    let memory_list = query_system_memory_list()?;
-    let standby_pages: u64 = memory_list
-        .page_count_by_priority
-        .iter()
-        .map(|value| *value as u64)
-        .sum();
-    let free_pages = (memory_list.free_page_count as u64).saturating_add(memory_list.zero_page_count as u64);
-
-    let mut sys_info = SYSTEM_INFO::default();
-    unsafe {
-        GetSystemInfo(&mut sys_info);
-    }
-    let page_size = u64::from(sys_info.dwPageSize);
-    let standby_list_mb = standby_pages
-        .saturating_mul(page_size)
-        .saturating_div(1024 * 1024);
-    let free_memory_mb = free_pages
-        .saturating_mul(page_size)
-        .saturating_div(1024 * 1024);
-    let mut system = System::new();
-    system.refresh_memory();
-    let total_memory_mb = system.total_memory().saturating_div(1024 * 1024);
-
-    Ok(MemoryStatsDto {
-        standby_list_mb,
-        free_memory_mb,
-        total_memory_mb,
-    })
+    default_memory_metrics_provider().read_stats()
 }
 
 pub(crate) fn run_standby_purge() -> Result<(), AppError> {
@@ -145,6 +193,29 @@ pub(crate) fn run_standby_purge() -> Result<(), AppError> {
     Ok(())
 }
 
+pub(crate) fn run_standby_purge_with_telemetry(
+    runtime: &RuntimeControlState,
+) -> Result<u64, AppError> {
+    let freed_mb = match read_memory_stats() {
+        Ok(stats) => stats.standby_list_mb,
+        Err(error) => {
+            warn!(
+                "memory stats read failed before standby cleanup; falling back to 0 MB: {}",
+                error
+            );
+            0
+        }
+    };
+
+    run_standby_purge()?;
+    runtime.memory_purge_count.fetch_add(1, Ordering::Relaxed);
+    runtime
+        .memory_purge_cleared_mb
+        .fetch_add(freed_mb, Ordering::Relaxed);
+
+    Ok(freed_mb)
+}
+
 pub(crate) fn should_run_memory_purge(config: &MemoryPurgeConfigState, stats: &MemoryStatsDto) -> bool {
     match (config.enable_standby_trigger, config.enable_free_memory_trigger) {
         (false, false) => false,
@@ -157,7 +228,10 @@ pub(crate) fn should_run_memory_purge(config: &MemoryPurgeConfigState, stats: &M
     }
 }
 
-pub(crate) fn run_memory_purge_tick(runtime: &RuntimeControlState) -> Result<(), AppError> {
+pub(crate) fn run_memory_purge_tick(
+    app: &AppHandle,
+    runtime: &RuntimeControlState,
+) -> Result<(), AppError> {
     let config = *runtime
         .memory_purge_config
         .read()
@@ -173,9 +247,13 @@ pub(crate) fn run_memory_purge_tick(runtime: &RuntimeControlState) -> Result<(),
 
     let stats = read_memory_stats()?;
     if should_run_memory_purge(&config, &stats) {
-        run_standby_purge()?;
-        runtime.memory_purge_count.fetch_add(1, Ordering::Relaxed);
+        let freed_mb = run_standby_purge_with_telemetry(runtime)?;
+        if let Err(err) = app.emit("memory_purged_auto", freed_mb) {
+            warn!("failed to emit memory_purged_auto event: {}", err);
+        }
     }
 
     Ok(())
 }
+
+

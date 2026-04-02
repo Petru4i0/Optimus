@@ -1,5 +1,15 @@
-use crate::*;
-
+use crate::core::{
+    error, info, is_access_denied, is_running_as_admin, last_error_code, warn, Duration, HashMap,
+    Mutex, OnceLock, Path, PathBuf, ProcessesToUpdate, System, UNIX_EPOCH,
+    ARG_APPLY_CONFIG, ICON_COLLISION_GUARD_MAX_ITEMS, GetPriorityClass, OpenProcess,
+    SetPriorityClass, TerminateProcess, PROCESS_ACCESS_RIGHTS, PROCESS_QUERY_LIMITED_INFORMATION,
+    PROCESS_SET_INFORMATION, PROCESS_TERMINATE,
+};
+use crate::settings_repo::{headless_configs_file_path, read_configs_from_path};
+use crate::types::{
+    AppError, OwnedHandle, PriorityClassDto, PriorityRead, ProcessDeltaPayload, ProcessRowDto,
+    ProcessSamplerSnapshot, RuntimeControlState, SampledProcess,
+};
 pub(crate) fn open_process(
     pid: u32,
     access: PROCESS_ACCESS_RIGHTS,
@@ -129,8 +139,73 @@ pub(crate) fn kill_process_by_pid(pid: u32) -> Result<(), AppError> {
     }
 }
 
-pub(crate) fn gather_process_groups() -> ProcessListResponse {
-    gather_process_groups_with_known_icons(None)
+fn build_sampler_snapshot(system: &System) -> ProcessSamplerSnapshot {
+    let mut processes = Vec::with_capacity(system.processes().len());
+    for (pid, process) in system.processes() {
+        let exe_path = process.exe().map(PathBuf::from);
+        let app_name = exe_path
+            .as_deref()
+            .and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned())
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| process.name().to_string_lossy().into_owned());
+
+        processes.push(SampledProcess {
+            pid: pid.as_u32(),
+            app_name_lower: app_name.to_lowercase(),
+            app_name,
+            exe_path,
+            memory_bytes: process.memory(),
+        });
+    }
+
+    ProcessSamplerSnapshot { processes }
+}
+
+fn write_sampler_snapshot(state: &RuntimeControlState, snapshot: ProcessSamplerSnapshot) {
+    match state.process_sampler_snapshot.write() {
+        Ok(mut guard) => {
+            *guard = snapshot;
+        }
+        Err(poisoned) => {
+            warn!("process sampler snapshot lock poisoned; recovering state");
+            let mut guard = poisoned.into_inner();
+            *guard = snapshot;
+        }
+    }
+}
+
+pub(crate) fn read_sampler_snapshot(state: &RuntimeControlState) -> ProcessSamplerSnapshot {
+    match state.process_sampler_snapshot.read() {
+        Ok(snapshot) => snapshot.clone(),
+        Err(_) => ProcessSamplerSnapshot::default(),
+    }
+}
+
+pub(crate) fn spawn_process_sampler_loop(state: RuntimeControlState) {
+    tauri::async_runtime::spawn(async move {
+        let mut system = System::new_all();
+        let mut shutdown_rx = state.shutdown_tx.subscribe();
+        let mut interval = tokio::time::interval(Duration::from_secs(1));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        system.refresh_processes(ProcessesToUpdate::All, true);
+        write_sampler_snapshot(&state, build_sampler_snapshot(&system));
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    system.refresh_processes(ProcessesToUpdate::All, true);
+                    write_sampler_snapshot(&state, build_sampler_snapshot(&system));
+                }
+                changed = shutdown_rx.changed() => {
+                    if changed.is_err() || *shutdown_rx.borrow() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
 }
 
 fn icon_collision_guard() -> &'static Mutex<HashMap<String, String>> {
@@ -211,79 +286,129 @@ pub(crate) fn icon_key_from_identity(identity: &str) -> String {
     }
 }
 
-pub(crate) fn gather_process_groups_with_known_icons(
-    known_icon_keys: Option<&HashSet<String>>,
-) -> ProcessListResponse {
-    let mut system = System::new_all();
-    system.refresh_processes(ProcessesToUpdate::All, true);
-
-    let mut grouped: BTreeMap<String, GroupAccumulator> = BTreeMap::new();
+fn build_process_rows_from_snapshot(
+    snapshot: &ProcessSamplerSnapshot,
+) -> (
+    HashMap<u32, ProcessRowDto>,
+    HashMap<String, PathBuf>,
+    bool,
+) {
+    let mut rows = HashMap::with_capacity(snapshot.processes.len());
+    let mut icon_sources = HashMap::new();
     let mut needs_elevation = false;
 
-    for (pid, process) in system.processes() {
-        let exe_path = process.exe().map(PathBuf::from);
-        let app_name = exe_path
-            .as_deref()
-            .and_then(Path::file_name)
-            .map(|name| name.to_string_lossy().into_owned())
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or_else(|| process.name().to_string_lossy().into_owned());
-
-        let priority = read_priority(pid.as_u32());
+    for process in &snapshot.processes {
+        let priority = read_priority(process.pid);
         if priority.access_denied {
             needs_elevation = true;
         }
 
-        let entry = grouped.entry(app_name).or_insert_with(|| GroupAccumulator {
-            icon_path: None,
-            processes: Vec::new(),
-        });
-
-        if entry.icon_path.is_none() {
-            entry.icon_path = exe_path;
+        let identity = icon_identity(
+            &process.app_name,
+            process.exe_path.as_deref(),
+            Some(process.pid),
+        );
+        let icon_key = icon_key_from_identity(&identity);
+        if let Some(path) = process.exe_path.clone() {
+            icon_sources.insert(icon_key.clone(), path);
         }
 
-        entry.processes.push(ProcessDto {
-            pid: pid.as_u32(),
-            memory_bytes: process.memory(),
-            priority: priority.class,
-            priority_raw: priority.raw,
-            priority_label: priority.label,
-        });
+        rows.insert(
+            process.pid,
+            ProcessRowDto {
+                pid: process.pid,
+                app_name: process.app_name.clone(),
+                icon_key,
+                memory_bytes: process.memory_bytes,
+                priority: priority.class,
+                priority_raw: priority.raw,
+                priority_label: priority.label,
+            },
+        );
     }
 
-    let mut groups = Vec::with_capacity(grouped.len());
-    for (app_name, mut group) in grouped {
-        group.processes.sort_by_key(|proc| proc.pid);
-        let fallback_pid = group.processes.first().map(|proc| proc.pid);
-        let icon_identity = icon_identity(&app_name, group.icon_path.as_deref(), fallback_pid);
-        let icon_key = icon_key_from_identity(&icon_identity);
-        let should_include_icon = known_icon_keys
-            .map(|keys| !keys.contains(&icon_key))
-            .unwrap_or(true);
-        let icon_base64 = if should_include_icon {
-            group
-                .icon_path
-                .as_deref()
-                .and_then(|path| extract_icon_base64(path).ok())
-        } else {
-            None
-        };
+    (rows, icon_sources, needs_elevation)
+}
 
-        groups.push(ProcessGroupDto {
-            total: group.processes.len(),
-            app_name,
-            icon_key,
-            icon_base64,
-            processes: group.processes,
-        });
+fn diff_process_rows(
+    last_rows: &HashMap<u32, ProcessRowDto>,
+    current_rows: &HashMap<u32, ProcessRowDto>,
+) -> (Vec<ProcessRowDto>, Vec<ProcessRowDto>, Vec<u32>) {
+    let mut added = Vec::new();
+    let mut updated = Vec::new();
+    let mut removed = Vec::new();
+
+    for (pid, row) in current_rows {
+        match last_rows.get(pid) {
+            None => added.push(row.clone()),
+            Some(previous) if previous != row => updated.push(row.clone()),
+            _ => {}
+        }
     }
 
-    ProcessListResponse {
-        groups,
+    for pid in last_rows.keys() {
+        if !current_rows.contains_key(pid) {
+            removed.push(*pid);
+        }
+    }
+
+    added.sort_by_key(|item| item.pid);
+    updated.sort_by_key(|item| item.pid);
+    removed.sort_unstable();
+    (added, updated, removed)
+}
+
+#[tracing::instrument(skip_all)]
+pub(crate) fn compute_process_delta(runtime: &RuntimeControlState) -> ProcessDeltaPayload {
+    let snapshot = read_sampler_snapshot(runtime);
+    let (current_rows, icon_sources, needs_elevation) = build_process_rows_from_snapshot(&snapshot);
+    let mut state = match runtime.process_delta_state.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            warn!("process delta state lock poisoned; recovering state");
+            poisoned.into_inner()
+        }
+    };
+    let sequence = state.sequence.wrapping_add(1);
+    let (added, updated, removed) = diff_process_rows(&state.last_rows, &current_rows);
+    state.last_rows = current_rows;
+    state.icon_sources = icon_sources;
+    state.sequence = sequence;
+
+    ProcessDeltaPayload {
+        sequence,
+        added,
+        updated,
+        removed,
         needs_elevation,
         is_elevated: is_running_as_admin(),
     }
+}
+
+pub(crate) fn resolve_icon_path_for_key(
+    runtime: &RuntimeControlState,
+    icon_key: &str,
+) -> Option<PathBuf> {
+    if let Ok(state) = runtime.process_delta_state.lock() {
+        if let Some(path) = state.icon_sources.get(icon_key) {
+            return Some(path.clone());
+        }
+    }
+
+    let snapshot = read_sampler_snapshot(runtime);
+    for process in snapshot.processes {
+        let identity = icon_identity(
+            &process.app_name,
+            process.exe_path.as_deref(),
+            Some(process.pid),
+        );
+        let key = icon_key_from_identity(&identity);
+        if key == icon_key {
+            return process.exe_path;
+        }
+    }
+
+    None
 }
 
 pub(crate) fn parse_apply_config_arg() -> Option<String> {
@@ -299,10 +424,6 @@ pub(crate) fn app_name_from_process(process: &sysinfo::Process) -> String {
         .map(|name| name.to_string_lossy().into_owned())
         .filter(|name| !name.trim().is_empty())
         .unwrap_or_else(|| process.name().to_string_lossy().into_owned())
-}
-
-pub(crate) fn app_name_lower_from_process(process: &sysinfo::Process) -> String {
-    app_name_from_process(process).to_lowercase()
 }
 
 pub(crate) fn apply_config_headless(config_name: &str, app_identifier: &str) -> Result<(), AppError> {
@@ -350,141 +471,91 @@ pub(crate) fn apply_config_headless(config_name: &str, app_identifier: &str) -> 
     Ok(())
 }
 
-pub(crate) fn extract_icon_base64(path: &Path) -> Result<String, AppError> {
-    let key = path.to_string_lossy().into_owned();
-
-    if let Ok(cache) = icon_cache().lock() {
-        if let Some(cached) = cache.get(&key) {
-            return Ok(cached.clone());
-        }
-    }
-
-    let rgba = extract_icon_rgba(path, ICON_SIZE)?;
-    let image = image::RgbaImage::from_raw(ICON_SIZE as u32, ICON_SIZE as u32, rgba)
-        .ok_or_else(|| AppError::Message("failed to build RGBA image".to_owned()))?;
-
-    let mut cursor = Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgba8(image)
-        .write_to(&mut cursor, ImageFormat::Png)
-        .map_err(|e| AppError::Message(format!("failed to encode PNG: {e}")))?;
-
-    let encoded = format!(
-        "data:image/png;base64,{}",
-        STANDARD.encode(cursor.into_inner())
-    );
-    if let Ok(mut cache) = icon_cache().lock() {
-        if cache.len() >= ICON_CACHE_MAX_ITEMS {
-            cache.clear();
-            warn!("icon cache reached {} entries; cache cleared", ICON_CACHE_MAX_ITEMS);
-        }
-        cache.insert(key, encoded.clone());
-    }
-
-    Ok(encoded)
+pub(crate) fn extract_icon_png_bytes(path: &Path) -> Result<Vec<u8>, AppError> {
+    crate::icon_service::extract_icon_png_bytes(path)
 }
 
-pub(crate) fn extract_icon_rgba(path: &Path, icon_size: i32) -> Result<Vec<u8>, AppError> {
-    unsafe {
-        let wide: Vec<u16> = path
-            .as_os_str()
-            .encode_wide()
-            .chain(iter::once(0))
-            .collect();
+#[cfg(test)]
+mod tests {
+    use crate::process::{compute_process_delta, diff_process_rows};
+    use crate::types::{ProcessRowDto, ProcessSamplerSnapshot, RuntimeControlState, SampledProcess};
+    use std::collections::HashMap;
 
-        let mut icon = HICON::default();
-        let extracted = ExtractIconExW(
-            PCWSTR(wide.as_ptr()),
-            0,
-            Some(std::ptr::addr_of_mut!(icon)),
-            None,
-            1,
-        );
+    fn row(pid: u32, memory_bytes: u64, priority_label: &str) -> ProcessRowDto {
+        ProcessRowDto {
+            pid,
+            app_name: "game.exe".to_owned(),
+            icon_key: "icon".to_owned(),
+            memory_bytes,
+            priority: None,
+            priority_raw: None,
+            priority_label: priority_label.to_owned(),
+        }
+    }
 
-        if extracted == 0 || icon.is_invalid() {
-            return Err(AppError::Message(format!(
-                "no icon extracted for {}",
-                path.display()
-            )));
+    #[test]
+    fn diff_process_rows_detects_added_updated_removed() {
+        let mut last_rows = HashMap::new();
+        last_rows.insert(1, row(1, 100, "Normal"));
+        last_rows.insert(2, row(2, 200, "Normal"));
+
+        let mut current_rows = HashMap::new();
+        current_rows.insert(2, row(2, 250, "High"));
+        current_rows.insert(3, row(3, 300, "Normal"));
+
+        let (added, updated, removed) = diff_process_rows(&last_rows, &current_rows);
+        assert_eq!(added.len(), 1);
+        assert_eq!(added[0].pid, 3);
+        assert_eq!(updated.len(), 1);
+        assert_eq!(updated[0].pid, 2);
+        assert_eq!(removed, vec![1]);
+    }
+
+    #[test]
+    fn diff_process_rows_ignores_unchanged_rows() {
+        let mut last_rows = HashMap::new();
+        let snapshot = row(10, 512, "Normal");
+        last_rows.insert(10, snapshot.clone());
+
+        let mut current_rows = HashMap::new();
+        current_rows.insert(10, snapshot);
+
+        let (added, updated, removed) = diff_process_rows(&last_rows, &current_rows);
+        assert!(added.is_empty());
+        assert!(updated.is_empty());
+        assert!(removed.is_empty());
+    }
+
+    #[test]
+    fn compute_process_delta_recovers_poisoned_lock_and_keeps_sequence_moving() {
+        let runtime = RuntimeControlState::default();
+        {
+            let mut sampler = runtime
+                .process_sampler_snapshot
+                .write()
+                .expect("sampler snapshot write lock");
+            *sampler = ProcessSamplerSnapshot {
+                processes: vec![SampledProcess {
+                    pid: std::process::id(),
+                    app_name: "test.exe".to_owned(),
+                    app_name_lower: "test.exe".to_owned(),
+                    exe_path: None,
+                    memory_bytes: 0,
+                }],
+            };
         }
 
-        let dc = CreateCompatibleDC(None);
-        if dc.is_invalid() {
-            let _ = DestroyIcon(icon);
-            return Err(AppError::Message("CreateCompatibleDC failed".to_owned()));
+        {
+            let poisoned = runtime.process_delta_state.clone();
+            let _ = std::panic::catch_unwind(move || {
+                let _guard = poisoned.lock().expect("delta lock");
+                panic!("poison process delta lock");
+            });
         }
 
-        let mut bits_ptr: *mut c_void = std::ptr::null_mut();
-        let bmi = BITMAPINFO {
-            bmiHeader: BITMAPINFOHEADER {
-                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                biWidth: icon_size,
-                biHeight: -icon_size,
-                biPlanes: 1,
-                biBitCount: 32,
-                biCompression: BI_RGB.0 as u32,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let bitmap = match CreateDIBSection(dc, &bmi, DIB_RGB_COLORS, &mut bits_ptr, None, 0) {
-            Ok(bitmap) => bitmap,
-            Err(_) => {
-                let _ = DeleteDC(dc);
-                let _ = DestroyIcon(icon);
-                return Err(AppError::Message("CreateDIBSection failed".to_owned()));
-            }
-        };
-
-        if bits_ptr.is_null() {
-            let _ = DeleteObject(HGDIOBJ(bitmap.0));
-            let _ = DeleteDC(dc);
-            let _ = DestroyIcon(icon);
-            return Err(AppError::Message(
-                "CreateDIBSection returned null".to_owned(),
-            ));
-        }
-
-        let old = SelectObject(dc, HGDIOBJ(bitmap.0));
-
-        let drew = DrawIconEx(
-            dc,
-            0,
-            0,
-            icon,
-            icon_size,
-            icon_size,
-            0,
-            HBRUSH(std::ptr::null_mut()),
-            DI_NORMAL,
-        )
-        .is_ok();
-
-        if !drew {
-            if !old.is_invalid() {
-                let _ = SelectObject(dc, old);
-            }
-            let _ = DeleteObject(HGDIOBJ(bitmap.0));
-            let _ = DeleteDC(dc);
-            let _ = DestroyIcon(icon);
-            return Err(AppError::Message("DrawIconEx failed".to_owned()));
-        }
-
-        let count = (icon_size * icon_size * 4) as usize;
-        let bgra = std::slice::from_raw_parts(bits_ptr as *const u8, count);
-        let mut rgba = Vec::with_capacity(count);
-        for px in bgra.chunks_exact(4) {
-            rgba.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
-        }
-
-        if !old.is_invalid() {
-            let _ = SelectObject(dc, old);
-        }
-
-        let _ = DeleteObject(HGDIOBJ(bitmap.0));
-        let _ = DeleteDC(dc);
-        let _ = DestroyIcon(icon);
-
-        Ok(rgba)
+        let first = compute_process_delta(&runtime);
+        let second = compute_process_delta(&runtime);
+        assert!(second.sequence > first.sequence);
     }
 }
+

@@ -1,8 +1,25 @@
-type EngineViewProps = {
+import type { DeepPurgeConfig } from "../store/appStore";
+import { useAppStore } from "../store/appStore";
+import { Driver, GhostDevice, MsiPriority, PciDevice } from "../types/hardware";
+import DriverStorePanel from "./engine/DriverStorePanel";
+import GhostDevicesPanel from "./engine/GhostDevicesPanel";
+import MemoryPurgeCard from "./engine/MemoryPurgeCard";
+import MsiPanel from "./engine/MsiPanel";
+import TimerCard from "./engine/TimerCard";
+
+export type EngineViewProps = {
+  isAdmin: boolean;
+  onRequireAdmin: () => void;
   timerEnabled: boolean;
   timerCurrentMs: number | null;
   timerBusy: boolean;
+  deepPurgeBusy: boolean;
+  deepPurgeConfig: DeepPurgeConfig;
+  totalDeepPurgeCount: number;
+  totalDeepPurgeBytes: number;
   onTimerToggle: (enabled: boolean) => void;
+  onRunDeepPurge: (config: DeepPurgeConfig) => void;
+  setDeepPurgeConfig: (key: keyof DeepPurgeConfig, value: boolean) => void;
   masterEnabled: boolean;
   standbyListMb: number;
   freeMemoryMb: number;
@@ -12,6 +29,7 @@ type EngineViewProps = {
   enableFreeMemoryTrigger: boolean;
   freeMemoryLimitMb: number;
   totalPurges: number;
+  totalRamClearedMb: number;
   configBusy: boolean;
   purgeBusy: boolean;
   onMasterToggle: (enabled: boolean) => void;
@@ -22,13 +40,36 @@ type EngineViewProps = {
   onFreeMemoryLimitChange: (value: number) => void;
   onFreeMemoryLimitBlur: () => void;
   onPurgeNow: () => void;
+  pciDevices: PciDevice[];
+  drivers: Driver[];
+  ghostDevices: GhostDevice[];
+  pciLoading: boolean;
+  driversLoading: boolean;
+  ghostsLoading: boolean;
+  pciApplying: boolean;
+  driverDeleting: boolean;
+  ghostRemoving: boolean;
+  onRefreshPci: (silent?: boolean) => void;
+  onRefreshDrivers: (silent?: boolean) => void;
+  onRefreshGhosts: (silent?: boolean) => void;
+  onApplyMsiBatch: (updates: Array<{ deviceId: string; enable: boolean; priority: MsiPriority }>) => void;
+  onDeleteDriver: (publishedName: string, force: boolean) => void;
+  onRemoveGhost: (instanceId: string, force: boolean) => void;
 };
 
 export default function EngineView({
+  isAdmin,
+  onRequireAdmin,
   timerEnabled,
   timerCurrentMs,
   timerBusy,
+  deepPurgeBusy,
+  deepPurgeConfig,
+  totalDeepPurgeCount,
+  totalDeepPurgeBytes,
   onTimerToggle,
+  onRunDeepPurge,
+  setDeepPurgeConfig,
   masterEnabled,
   standbyListMb,
   freeMemoryMb,
@@ -38,6 +79,7 @@ export default function EngineView({
   enableFreeMemoryTrigger,
   freeMemoryLimitMb,
   totalPurges,
+  totalRamClearedMb,
   configBusy,
   purgeBusy,
   onMasterToggle,
@@ -48,148 +90,168 @@ export default function EngineView({
   onFreeMemoryLimitChange,
   onFreeMemoryLimitBlur,
   onPurgeNow,
+  pciDevices,
+  drivers,
+  ghostDevices,
+  pciLoading,
+  driversLoading,
+  ghostsLoading,
+  pciApplying,
+  driverDeleting,
+  ghostRemoving,
+  onRefreshPci,
+  onRefreshDrivers,
+  onRefreshGhosts,
+  onApplyMsiBatch,
+  onDeleteDriver,
+  onRemoveGhost,
 }: EngineViewProps) {
-  const controlsBusy = configBusy || purgeBusy;
+  const activeHardwareTab = useAppStore((state) => state.activeHardwareTab);
+  const setActiveHardwareTab = useAppStore((state) => state.setActiveHardwareTab);
+
+  const handleMemoryMasterToggle = (enabled: boolean) => {
+    if (!isAdmin) {
+      onRequireAdmin();
+      return;
+    }
+    onMasterToggle(enabled);
+  };
+
+  const handlePurgeNow = () => {
+    if (!isAdmin) {
+      onRequireAdmin();
+      return;
+    }
+    onPurgeNow();
+  };
+
+  const handleRunDeepPurge = (config: DeepPurgeConfig) => {
+    if (!isAdmin) {
+      onRequireAdmin();
+      return;
+    }
+    onRunDeepPurge(config);
+  };
+
+  const handleApplyMsiBatch = (
+    updates: Array<{ deviceId: string; enable: boolean; priority: MsiPriority }>,
+  ) => {
+    if (!isAdmin) {
+      onRequireAdmin();
+      return;
+    }
+    onApplyMsiBatch(updates);
+  };
+
+  const handleDeleteDriver = (publishedName: string, force: boolean) => {
+    if (!isAdmin) {
+      onRequireAdmin();
+      return;
+    }
+    onDeleteDriver(publishedName, force);
+  };
+
+  const handleRemoveGhost = (instanceId: string, force: boolean) => {
+    if (!isAdmin) {
+      onRequireAdmin();
+      return;
+    }
+    onRemoveGhost(instanceId, force);
+  };
 
   return (
-    <div className="max-w-xl space-y-4">
+    <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-2">
+        <TimerCard
+          timerEnabled={timerEnabled}
+          timerCurrentMs={timerCurrentMs}
+          timerBusy={timerBusy}
+          deepPurgeBusy={deepPurgeBusy}
+          deepPurgeConfig={deepPurgeConfig}
+          totalDeepPurgeCount={totalDeepPurgeCount}
+          totalDeepPurgeBytes={totalDeepPurgeBytes}
+          onTimerToggle={onTimerToggle}
+          onRunDeepPurge={handleRunDeepPurge}
+          setDeepPurgeConfig={setDeepPurgeConfig}
+        />
+
+        <MemoryPurgeCard
+          masterEnabled={masterEnabled}
+          standbyListMb={standbyListMb}
+          freeMemoryMb={freeMemoryMb}
+          totalMemoryMb={totalMemoryMb}
+          enableStandbyTrigger={enableStandbyTrigger}
+          standbyLimitMb={standbyLimitMb}
+          enableFreeMemoryTrigger={enableFreeMemoryTrigger}
+          freeMemoryLimitMb={freeMemoryLimitMb}
+          totalPurges={totalPurges}
+          totalRamClearedMb={totalRamClearedMb}
+          configBusy={configBusy}
+          purgeBusy={purgeBusy}
+          onMasterToggle={handleMemoryMasterToggle}
+          onStandbyTriggerToggle={onStandbyTriggerToggle}
+          onStandbyLimitChange={onStandbyLimitChange}
+          onStandbyLimitBlur={onStandbyLimitBlur}
+          onFreeMemoryTriggerToggle={onFreeMemoryTriggerToggle}
+          onFreeMemoryLimitChange={onFreeMemoryLimitChange}
+          onFreeMemoryLimitBlur={onFreeMemoryLimitBlur}
+          onPurgeNow={handlePurgeNow}
+        />
+      </div>
+
       <section className="glass-card rounded-2xl p-5">
-        <div className="flex flex-wrap items-center gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-zinc-100">Turbo Timer (Instant 0.5ms)</h2>
-            <p className="mt-1 text-xs text-zinc-400">
-              One-click latency forcing with fixed minimum timer target.
-            </p>
-          </div>
-
-          <div className="ml-auto flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900/55 px-3 py-2">
-            <span className="text-sm text-zinc-200">{timerEnabled ? "Enabled" : "Disabled"}</span>
-            <label className="relative inline-flex h-6 w-11 cursor-pointer items-center">
-              <input
-                type="checkbox"
-                className="peer sr-only"
-                checked={timerEnabled}
-                disabled={timerBusy}
-                onChange={(event) => onTimerToggle(event.target.checked)}
-                aria-label="Toggle Turbo Timer"
-              />
-              <span className="absolute inset-0 rounded-full border border-zinc-600 bg-zinc-800/80 transition-colors peer-checked:border-zinc-300 peer-checked:bg-zinc-200/20 peer-disabled:cursor-not-allowed peer-disabled:opacity-50" />
-              <span className="absolute left-[2px] top-[2px] h-5 w-5 rounded-full bg-zinc-300 transition-transform peer-checked:translate-x-5 peer-checked:bg-white peer-disabled:opacity-50" />
-            </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-semibold text-zinc-100">Hardware</h2>
+          <div className="ml-auto flex rounded-lg border border-zinc-800 bg-zinc-900 p-1">
+            {[
+              { id: "msi" as const, label: "MSI Utility" },
+              { id: "drivers" as const, label: "Driver Store" },
+              { id: "ghosts" as const, label: "Inactive Devices" },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveHardwareTab(tab.id)}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                  activeHardwareTab === tab.id
+                    ? "bg-zinc-700 text-zinc-100"
+                    : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        <div className="mt-4 rounded-xl border border-zinc-700 bg-zinc-900/55 p-4">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Live Latency Status</p>
-          <p className="mt-2 text-2xl font-semibold text-zinc-100">
-            {timerCurrentMs === null ? "--" : timerCurrentMs.toFixed(3)} ms
-          </p>
-          <p className="mt-2 text-xs text-zinc-400">Minimum Support: 0.500 ms</p>
-          <p className="mt-1 text-xs text-zinc-500">Target: 0.500 ms</p>
-        </div>
-      </section>
+        {activeHardwareTab === "msi" ? (
+          <MsiPanel
+            pciDevices={pciDevices}
+            pciLoading={pciLoading}
+            pciApplying={pciApplying}
+            onRefreshPci={onRefreshPci}
+            onApplyMsiBatch={handleApplyMsiBatch}
+          />
+        ) : null}
 
-      <section className="glass-card rounded-2xl p-5">
-        <div className="flex flex-wrap items-center gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-zinc-100">Memory Purge Engine</h2>
-            <p className="mt-1 text-xs text-zinc-400">
-              Standby list cleaner with independent trigger conditions.
-            </p>
-          </div>
+        {activeHardwareTab === "drivers" ? (
+          <DriverStorePanel
+            drivers={drivers}
+            driversLoading={driversLoading}
+            driverDeleting={driverDeleting}
+            onRefreshDrivers={onRefreshDrivers}
+            onDeleteDriver={handleDeleteDriver}
+          />
+        ) : null}
 
-          <div className="ml-auto flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900/55 px-3 py-2">
-            <span className="text-sm text-zinc-200">{masterEnabled ? "Enabled" : "Disabled"}</span>
-            <label className="relative inline-flex h-6 w-11 cursor-pointer items-center">
-              <input
-                type="checkbox"
-                className="peer sr-only"
-                checked={masterEnabled}
-                disabled={controlsBusy}
-                onChange={(event) => onMasterToggle(event.target.checked)}
-                aria-label="Toggle Memory Purge Engine"
-              />
-              <span className="absolute inset-0 rounded-full border border-zinc-600 bg-zinc-800/80 transition-colors peer-checked:border-zinc-300 peer-checked:bg-zinc-200/20 peer-disabled:cursor-not-allowed peer-disabled:opacity-50" />
-              <span className="absolute left-[2px] top-[2px] h-5 w-5 rounded-full bg-zinc-300 transition-transform peer-checked:translate-x-5 peer-checked:bg-white peer-disabled:opacity-50" />
-            </label>
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border border-zinc-700 bg-zinc-900/55 px-3 py-3">
-            <p className="text-xs text-zinc-500">Total Memory</p>
-            <p className="mt-1 text-xl font-semibold text-zinc-100">{totalMemoryMb.toLocaleString()} MB</p>
-          </div>
-          <div className="rounded-xl border border-zinc-700 bg-zinc-900/55 px-3 py-3">
-            <p className="text-xs text-zinc-500">Standby List</p>
-            <p className="mt-1 text-xl font-semibold text-zinc-100">{standbyListMb.toLocaleString()} MB</p>
-          </div>
-          <div className="rounded-xl border border-zinc-700 bg-zinc-900/55 px-3 py-3">
-            <p className="text-xs text-zinc-500">Free Memory</p>
-            <p className="mt-1 text-xl font-semibold text-zinc-100">{freeMemoryMb.toLocaleString()} MB</p>
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-3">
-          <label className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900/45 px-3 py-2 text-sm text-zinc-200">
-            <input
-              type="checkbox"
-              className={`h-4 w-4 cursor-pointer rounded border-zinc-700 bg-zinc-900 accent-zinc-200 text-zinc-200 focus:ring-1 focus:ring-zinc-500/40 ${
-                controlsBusy || masterEnabled ? "pointer-events-none opacity-50" : ""
-              }`}
-              checked={enableStandbyTrigger}
-              onChange={(event) => onStandbyTriggerToggle(event.target.checked)}
-              tabIndex={controlsBusy || masterEnabled ? -1 : 0}
-            />
-            <span>Purge if Standby List {">"}</span>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={standbyLimitMb}
-              disabled={controlsBusy || masterEnabled}
-              onChange={(event) => onStandbyLimitChange(Number(event.target.value))}
-              onBlur={onStandbyLimitBlur}
-              className="w-28 rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-500/40 disabled:cursor-not-allowed disabled:opacity-50"
-            />
-            <span>MB</span>
-          </label>
-
-          <label className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900/45 px-3 py-2 text-sm text-zinc-200">
-            <input
-              type="checkbox"
-              className={`h-4 w-4 cursor-pointer rounded border-zinc-700 bg-zinc-900 accent-zinc-200 text-zinc-200 focus:ring-1 focus:ring-zinc-500/40 ${
-                controlsBusy || masterEnabled ? "pointer-events-none opacity-50" : ""
-              }`}
-              checked={enableFreeMemoryTrigger}
-              onChange={(event) => onFreeMemoryTriggerToggle(event.target.checked)}
-              tabIndex={controlsBusy || masterEnabled ? -1 : 0}
-            />
-            <span>Purge if Free Memory {"<"}</span>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={freeMemoryLimitMb}
-              disabled={controlsBusy || masterEnabled}
-              onChange={(event) => onFreeMemoryLimitChange(Number(event.target.value))}
-              onBlur={onFreeMemoryLimitBlur}
-              className="w-28 rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm text-zinc-100 outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-500/40 disabled:cursor-not-allowed disabled:opacity-50"
-            />
-            <span>MB</span>
-          </label>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button
-            className="btn-primary disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={onPurgeNow}
-            disabled={purgeBusy}
-          >
-            {purgeBusy ? "Purging..." : "Purge Now"}
-          </button>
-          <p className="text-sm text-zinc-300">Total Purges: {totalPurges.toLocaleString()}</p>
-        </div>
+        {activeHardwareTab === "ghosts" ? (
+          <GhostDevicesPanel
+            ghostDevices={ghostDevices}
+            ghostsLoading={ghostsLoading}
+            ghostRemoving={ghostRemoving}
+            onRefreshGhosts={onRefreshGhosts}
+            onRemoveGhost={handleRemoveGhost}
+          />
+        ) : null}
       </section>
     </div>
   );

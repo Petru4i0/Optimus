@@ -13,6 +13,7 @@ import AppIcon from "./AppIcon";
 export type AppPickerOption = {
   appName: string;
   iconBase64: string | null;
+  iconKey?: string | null;
 };
 
 type AppPickerDropdownProps = {
@@ -129,7 +130,12 @@ export default function AppPickerDropdown({
       >
         {selected ? (
           <span className="app-picker-trigger-content">
-            <AppIcon appName={selected.appName} iconBase64={selected.iconBase64} className="h-6 w-6" />
+            <AppIcon
+              appName={selected.appName}
+              iconBase64={selected.iconBase64}
+              iconKey={selected.iconKey}
+              className="h-6 w-6"
+            />
             <span className="truncate">{selected.appName}</span>
           </span>
         ) : (
@@ -172,7 +178,12 @@ export default function AppPickerDropdown({
                         }
                       }}
                     >
-                      <AppIcon appName={option.appName} iconBase64={option.iconBase64} className="h-7 w-7" />
+                      <AppIcon
+                        appName={option.appName}
+                        iconBase64={option.iconBase64}
+                        iconKey={option.iconKey}
+                        className="h-7 w-7"
+                      />
                       <span className="truncate text-left">{option.appName}</span>
                     </button>
                   );

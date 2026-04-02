@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ToastKind, ToastMessage } from "../types/process";
+﻿import { useCallback, useEffect, useRef, useState } from "react";
+import { ToastKind, ToastMessage } from "../types/config";
 
 export function useToastManager() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -41,3 +41,4 @@ export function useToastManager() {
     dismissToast,
   };
 }
+

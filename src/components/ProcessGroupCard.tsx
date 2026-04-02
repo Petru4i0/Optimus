@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { memo, useState } from "react";
+import { useProcessActions } from "./ProcessActionContext";
 import { PriorityClass, PriorityOption, ProcessGroupDto } from "../types/process";
 import AppIcon from "./AppIcon";
 import PrioritySelect from "./PrioritySelect";
@@ -14,13 +15,7 @@ type ProcessGroupCardProps = {
   pidPriority: Record<number, PriorityClass>;
   applyingPid: Record<number, boolean>;
   killingPid: Record<number, boolean>;
-  onGroupPriorityChange: (appName: string, value: PriorityClass) => void;
-  onApplyGroup: (group: ProcessGroupDto) => Promise<void>;
-  onEndGroup: (group: ProcessGroupDto) => Promise<void>;
   endingGroup: boolean;
-  onProcessPriorityChange: (pid: number, value: PriorityClass) => void;
-  onApplyProcess: (appName: string, pid: number) => Promise<void>;
-  onKillProcess: (appName: string, pid: number) => Promise<void>;
 };
 
 function ProcessGroupCard({
@@ -32,15 +27,10 @@ function ProcessGroupCard({
   pidPriority,
   applyingPid,
   killingPid,
-  onGroupPriorityChange,
-  onApplyGroup,
-  onEndGroup,
   endingGroup,
-  onProcessPriorityChange,
-  onApplyProcess,
-  onKillProcess,
 }: ProcessGroupCardProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const actions = useProcessActions();
 
   return (
     <motion.section
@@ -51,7 +41,7 @@ function ProcessGroupCard({
     >
       <div className="flex flex-wrap items-center gap-3">
         <button
-          className="inline-flex h-8 w-8 items-center justify-center text-zinc-300/85 transition hover:text-zinc-100"
+          className="inline-flex h-8 w-8 items-center justify-center text-zinc-400 transition hover:text-zinc-100"
           onClick={() => setIsOpen((prev) => !prev)}
           aria-label={isOpen ? "Collapse app group" : "Expand app group"}
         >
@@ -66,11 +56,16 @@ function ProcessGroupCard({
           </svg>
         </button>
 
-        <AppIcon appName={group.appName} iconBase64={group.iconBase64} className="h-9 w-9" />
+        <AppIcon
+          appName={group.appName}
+          iconBase64={group.iconBase64}
+          iconKey={group.iconKey}
+          className="h-9 w-9"
+        />
 
         <div>
           <h2 className="text-lg font-semibold sm:text-xl">{group.appName}</h2>
-          <p className="text-xs text-zinc-300/85">{group.total} running processes</p>
+          <p className="text-xs text-zinc-400">{group.total} running processes</p>
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -78,12 +73,12 @@ function ProcessGroupCard({
             className="w-[190px]"
             options={priorities}
             value={groupPriorityValue}
-            onChange={(nextValue) => onGroupPriorityChange(group.appName, nextValue)}
+            onChange={(nextValue) => actions.onGroupPriorityChange(group.appName, nextValue)}
           />
-          <button className="btn-primary" disabled={applyingGroup} onClick={() => void onApplyGroup(group)}>
+          <button className="btn-primary" disabled={applyingGroup} onClick={() => void actions.onApplyGroup(group)}>
             {applyingGroup ? "Applying..." : "Apply to All"}
           </button>
-          <button className="btn-danger" disabled={endingGroup} onClick={() => void onEndGroup(group)}>
+          <button className="btn-danger" disabled={endingGroup} onClick={() => void actions.onEndGroup(group)}>
             {endingGroup ? "Ending..." : "End App"}
           </button>
         </div>
@@ -99,7 +94,7 @@ function ProcessGroupCard({
             transition={{ duration: 0.22 }}
             className="overflow-hidden"
           >
-            <div className="mt-4 space-y-2 border-t border-zinc-200/10 pt-4">
+            <div className="mt-4 space-y-2 border-t border-zinc-500 pt-4">
               {group.processes.map((process) => (
                 <ProcessRow
                   key={process.pid}
@@ -109,9 +104,6 @@ function ProcessGroupCard({
                   priorities={priorities}
                   applying={Boolean(applyingPid[process.pid])}
                   killing={Boolean(killingPid[process.pid])}
-                  onPriorityChange={onProcessPriorityChange}
-                  onApply={onApplyProcess}
-                  onKill={onKillProcess}
                 />
               ))}
             </div>
@@ -156,13 +148,7 @@ function areGroupCardPropsEqual(prev: ProcessGroupCardProps, next: ProcessGroupC
     prev.groupPriorityValue !== next.groupPriorityValue ||
     prev.applyingGroup !== next.applyingGroup ||
     prev.endingGroup !== next.endingGroup ||
-    prev.priorities !== next.priorities ||
-    prev.onGroupPriorityChange !== next.onGroupPriorityChange ||
-    prev.onApplyGroup !== next.onApplyGroup ||
-    prev.onEndGroup !== next.onEndGroup ||
-    prev.onProcessPriorityChange !== next.onProcessPriorityChange ||
-    prev.onApplyProcess !== next.onApplyProcess ||
-    prev.onKillProcess !== next.onKillProcess
+    prev.priorities !== next.priorities
   ) {
     return false;
   }

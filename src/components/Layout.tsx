@@ -1,12 +1,9 @@
 import { ReactNode } from "react";
-import { clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
-import StatusPill from "./StatusPill";
 import TitleBar from "./TitleBar";
 
 type LayoutProps = {
-  activeTab: "home" | "settings" | "engine";
-  onTabChange: (tab: "home" | "settings" | "engine") => void;
+  activeTab: "home" | "settings" | "engine" | "optimization";
+  onTabChange: (tab: "home" | "settings" | "engine" | "optimization") => void;
   title?: string;
   groupsCount: number;
   totalProcesses: number;
@@ -19,10 +16,6 @@ type LayoutProps = {
   error: string | null;
   children: ReactNode;
 };
-
-function cn(...inputs: (string | undefined | false)[]) {
-  return twMerge(clsx(inputs));
-}
 
 export default function Layout({
   activeTab,
@@ -39,47 +32,49 @@ export default function Layout({
   error,
   children,
 }: LayoutProps) {
+  const syncLabel = lastSync ? new Date(lastSync).toLocaleTimeString() : "Waiting...";
+
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-zinc-950 text-zinc-200">
+    <div className="flex h-screen w-full flex-col overflow-hidden bg-zinc-950 text-zinc-100">
       <TitleBar activeTab={activeTab} onTabChange={onTabChange} title={title} />
       <div className="h-12 shrink-0" aria-hidden />
 
-      <main className="flex-1 overflow-y-auto px-4 pb-6">
+      <main className="relative z-0 pointer-events-auto flex-1 overflow-y-auto px-4 pb-6">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 pt-4 sm:px-2 lg:px-4">
-          <header className="glass-card glow-hover rounded-2xl p-5">
-            <div className="flex flex-wrap items-center gap-4">
-              <div>
-                <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Optimus</h1>
-                <p className="mt-1 text-sm text-zinc-300/90">
-                  Windows process priority manager with native elevation and live telemetry.
-                </p>
+          <header className="glass-card glow-hover rounded-2xl px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <h1 className="text-xl font-bold tracking-tight text-zinc-100">Optimus</h1>
+                <span
+                  className={`inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium ${
+                    isElevated
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
+                      : "border-rose-500/30 bg-rose-500/10 text-rose-500"
+                  }`}
+                >
+                  {isElevated ? "Administrator" : "Standard User"}
+                </span>
+                {needsElevation && !isElevated ? (
+                  <button className="btn-warning inline-flex items-center justify-center py-0 h-6 px-3 text-[11px] font-medium leading-none" onClick={onRequestElevation}>
+                    Restart as Administrator
+                  </button>
+                ) : null}
               </div>
 
-              <div className="ml-auto flex flex-wrap items-center gap-3">
-                <StatusPill>Groups: {groupsCount}</StatusPill>
-                <StatusPill>Processes: {totalProcesses}</StatusPill>
-                <button className="btn-primary" onClick={onRefresh} disabled={refreshing}>
+              <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+                <div className="flex items-center divide-x divide-zinc-800 rounded-md border border-zinc-800 bg-zinc-900 text-xs text-zinc-400">
+                  <div className="px-3 py-1.5 first:pl-3">Groups: {groupsCount}</div>
+                  <div className="px-3 py-1.5">Processes: {totalProcesses}</div>
+                  <div className="px-3 py-1.5">Sync: {syncLabel}</div>
+                </div>
+                <button className="btn-primary inline-flex items-center justify-center py-0 h-6 px-3 text-[11px] font-medium leading-none" onClick={onRefresh} disabled={refreshing}>
                   {refreshing ? "Refreshing..." : "Refresh"}
                 </button>
               </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-zinc-300/90">
-              <StatusPill className={cn(isElevated ? "border-green-300/30 text-green-200" : "border-zinc-200/20")}>
-                {isElevated ? "Running as Administrator" : "Running as Standard User"}
-              </StatusPill>
-
-              {lastSync ? <StatusPill>Last Sync: {new Date(lastSync).toLocaleTimeString()}</StatusPill> : null}
-
-              {needsElevation && !isElevated ? (
-                <button className="btn-warning" onClick={onRequestElevation}>
-                  Restart as Administrator
-                </button>
-              ) : null}
-            </div>
-
             {error ? (
-              <p className="mt-4 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+              <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-500">
                 {error}
               </p>
             ) : null}
