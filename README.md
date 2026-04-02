@@ -11,6 +11,18 @@
 ## Optimus v0.2.0
 Optimus is a Windows performance control platform engineered for one target: **zero-overhead execution with brutal determinism**. It is not a cosmetic booster. It is a systems utility that manipulates process scheduling, network behavior, hardware interrupt policy, telemetry surfaces, and deep cache state using explicit, reversible operations.
 
+## Screenshots
+
+<p align="center">
+  <img src="assets/home.png" width="48%" alt="Home View">
+  <img src="assets/optimization.png" width="48%" alt="Optimization View">
+</p>
+
+<p align="center">
+  <img src="assets/engine.png" width="48%" alt="Engine View">
+  <img src="assets/setting.png" width="48%" alt="Settings View">
+</p>
+
 ## Executive Summary
 The core idea is simple: do less work, but do it with precision.
 
