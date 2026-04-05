@@ -6,6 +6,7 @@
   <img src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React"/>
   <img src="https://img.shields.io/badge/Tauri-v2-24C8D8?style=for-the-badge&logo=tauri&logoColor=white" alt="Tauri v2"/>
   <img src="https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge" alt="License"/>
+  <a href="https://deepwiki.com/Petru4i0/Optimus"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </div>
 
 ## Optimus v0.2.0
